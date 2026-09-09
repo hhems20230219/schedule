@@ -2145,21 +2145,72 @@ $(function(){
   }
 
   function fitAllBoardText(){
-    const $all=$('.fire-table .person-chip, .fire-table .vehicle-chip, .rescue-table .person-chip, .rescue-table .vehicle-chip');
-    $all.each(function(){ fitBoardChipText(this); });
+    /*
+       v59：主表是字級基準，專責救護只能跟隨，不能自己放大。
+       原本 rescue-table 的儲存格比火警主表單列高，因此 fitBoardChipText()
+       會替 91/92 姓名算出更大的字級；即使 CSS 寫成一樣，inline !important
+       仍會讓專責救護看起來大一截。
 
-    // 同一類型使用一致字級。避免「火警值班」因為字數不同而被自動放成另一個大小。
-    const unify=function(selector){
-      const items=$(selector).toArray();
-      if(!items.length) return;
-      const sizes=items.map(el=>parseFloat(window.getComputedStyle(el).fontSize || '0')).filter(v=>v>0);
-      if(!sizes.length) return;
-      const size=Math.min(...sizes);
-      items.forEach(el=>el.style.setProperty('font-size',`${size}px`,'important'));
+       正確規則：
+       1. 只讓 fire-table 的姓名／車號自行計算最大可用字級。
+       2. 取 fire-table 同類型中最小值作為整張看板共同字級。
+       3. rescue-table 直接套用這個值，不再依自己的列高計算。
+    */
+    const firePersons=$('.fire-table .person-chip').toArray();
+    const fireVehicles=$('.fire-table .vehicle-chip').toArray();
+    const rescuePersons=$('.rescue-table .person-chip').toArray();
+    const rescueVehicles=$('.rescue-table .vehicle-chip').toArray();
+
+    const clearInlineFont=function(items){
+      items.forEach(el=>{
+        el.style.removeProperty('font-size');
+        el.style.removeProperty('line-height');
+      });
     };
-    // v58：主表與專責救護姓名／車號跨表使用同一字級，避免上下看起來大小不同。
-    unify('.fire-table .person-chip, .rescue-table .person-chip');
-    unify('.fire-table .vehicle-chip, .rescue-table .vehicle-chip');
+
+    const fitFireAndGetCommonSize=function(items){
+      if(!items.length) return null;
+      clearInlineFont(items);
+      items.forEach(el=>fitBoardChipText(el));
+      const sizes=items
+        .map(el=>parseFloat(window.getComputedStyle(el).fontSize || '0'))
+        .filter(v=>Number.isFinite(v) && v>0);
+      return sizes.length ? Math.min(...sizes) : null;
+    };
+
+    const applyCommonSize=function(items,size){
+      if(!size) return;
+      items.forEach(el=>{
+        el.style.setProperty('font-size',`${size}px`,'important');
+        el.style.setProperty('line-height','1','important');
+        el.style.setProperty('white-space','nowrap','important');
+        el.style.setProperty('overflow','hidden','important');
+        el.style.setProperty('text-overflow','clip','important');
+      });
+    };
+
+    const personSize=fitFireAndGetCommonSize(firePersons);
+    const vehicleSize=fitFireAndGetCommonSize(fireVehicles);
+
+    // 主表全部統一到共同最小值。
+    applyCommonSize(firePersons,personSize);
+    applyCommonSize(fireVehicles,vehicleSize);
+
+    // 專責救護完全跟隨主表；不得再自己依較高的儲存格放大。
+    clearInlineFont(rescuePersons);
+    clearInlineFont(rescueVehicles);
+    applyCommonSize(rescuePersons,personSize);
+    applyCommonSize(rescueVehicles,vehicleSize);
+
+    // 若主表暫時沒有同類卡片，才以救護區自身為備援基準。
+    if(!personSize && rescuePersons.length){
+      const fallback=fitFireAndGetCommonSize(rescuePersons);
+      applyCommonSize(rescuePersons,fallback);
+    }
+    if(!vehicleSize && rescueVehicles.length){
+      const fallback=fitFireAndGetCommonSize(rescueVehicles);
+      applyCommonSize(rescueVehicles,fallback);
+    }
   }
 
   let fitBoardTextTimer = null;

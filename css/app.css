@@ -2449,3 +2449,160 @@ body.is-fullscreen .rescue-table .person-chip{
   padding-top:0 !important;
   padding-bottom:0 !important;
 }
+
+/* =========================================================
+   v60：手機直式版專用排版
+   僅 <=768px 生效，桌機版完全不改。
+========================================================= */
+@media (max-width:768px){
+  html,body{
+    height:auto !important;
+    min-height:100% !important;
+    overflow-x:hidden !important;
+    overflow-y:auto !important;
+  }
+  #topbar{
+    height:60px !important;
+    min-height:60px !important;
+  }
+  #topbarTitle{
+    font-size:20px !important;
+    letter-spacing:.03em !important;
+  }
+  #fullscreenBtn{
+    width:46px !important;
+    height:46px !important;
+    padding:0 !important;
+  }
+  #fullscreenText{display:none !important;}
+
+  #boardPage,
+  body.is-fullscreen #boardPage{
+    height:auto !important;
+    min-height:calc(100dvh - 60px) !important;
+    padding:6px !important;
+    overflow-x:auto !important;
+    overflow-y:visible !important;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  #boardShell,
+  body.is-fullscreen #boardShell{
+    --mobile-board-width:1080px;
+    --dispatch-head-height:44px;
+    display:block !important;
+    width:var(--mobile-board-width) !important;
+    min-width:var(--mobile-board-width) !important;
+    max-width:none !important;
+    height:auto !important;
+    min-height:0 !important;
+    padding:5px !important;
+    overflow:visible !important;
+  }
+
+  #fireArea,
+  body.is-fullscreen #fireArea{
+    display:block !important;
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    max-height:none !important;
+    overflow:visible !important;
+  }
+  #fireArea > .table-responsive{
+    width:100% !important;
+    height:auto !important;
+    overflow:visible !important;
+  }
+  .fire-table,
+  body.is-fullscreen .fire-table{
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    max-height:none !important;
+    table-layout:fixed !important;
+  }
+  .fire-table thead,
+  .fire-table thead tr,
+  .fire-table thead th,
+  body.is-fullscreen .fire-table thead,
+  body.is-fullscreen .fire-table thead tr,
+  body.is-fullscreen .fire-table thead th{
+    height:44px !important;
+    min-height:44px !important;
+    max-height:44px !important;
+    font-size:16px !important;
+  }
+  .fire-table tbody,
+  body.is-fullscreen .fire-table tbody{height:auto !important;}
+  .fire-table tbody tr,
+  body.is-fullscreen .fire-table tbody tr{
+    height:76px !important;
+    min-height:76px !important;
+    max-height:76px !important;
+  }
+  .fire-table th,.fire-table td{padding:3px !important;}
+  .fire-table .col-echelon{width:62px !important;}
+  .section-vertical-title,.echelon-cell{
+    font-size:20px !important;
+    line-height:1.15 !important;
+    letter-spacing:.08em !important;
+  }
+
+  #bottomArea,
+  body.is-fullscreen #bottomArea{
+    display:block !important;
+    width:100% !important;
+    height:190px !important;
+    min-height:190px !important;
+    max-height:190px !important;
+    margin-top:7px !important;
+    overflow:visible !important;
+  }
+  .bottom-layout{
+    display:grid !important;
+    grid-template-columns:minmax(0,4fr) minmax(150px,1fr) minmax(150px,1fr) !important;
+    column-gap:7px !important;
+    width:100% !important;
+    min-width:100% !important;
+    height:190px !important;
+  }
+  .rescue-panel,.bottom-panel,.rescue-table{
+    height:190px !important;
+    min-height:190px !important;
+    max-height:190px !important;
+  }
+  .rescue-side-col{width:58px !important;}
+  .rescue-table tbody{height:190px !important;}
+  .rescue-table tbody tr:first-child{
+    height:44px !important;
+    min-height:44px !important;
+    max-height:44px !important;
+  }
+  .rescue-table tbody tr:nth-child(2),
+  .rescue-table tbody tr:nth-child(3){
+    height:73px !important;
+    min-height:73px !important;
+    max-height:73px !important;
+  }
+  .rescue-head,
+  body.is-fullscreen .rescue-head{
+    height:44px !important;
+    min-height:44px !important;
+    max-height:44px !important;
+    font-size:16px !important;
+    padding:2px !important;
+  }
+  .rescue-title{
+    font-size:24px !important;
+    line-height:1.15 !important;
+    letter-spacing:.08em !important;
+  }
+  .bottom-panel .panel-title{
+    min-height:44px !important;
+    height:44px !important;
+    font-size:16px !important;
+  }
+  .person-chip,.vehicle-chip{min-height:0 !important;}
+}
+

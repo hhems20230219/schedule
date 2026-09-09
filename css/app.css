@@ -2395,3 +2395,57 @@ body.is-fullscreen .rescue-table td.rescue-title.section-vertical-title{
     font-size:22px !important;
   }
 }
+
+/* =========================================================
+   v58：專責救護表格列高與主表一致化
+   ---------------------------------------------------------
+   問題根因：rescue-table 原本把 tbody 三列全部設成 33.333%，
+   導致第一列「表頭」吃掉 1/3 高度，而 91/92 資料列被壓得過矮。
+   修正：表頭固定與火警主表同高；剩餘高度由 91/92 平分。
+========================================================= */
+.rescue-table tbody tr:first-child{
+  height:var(--dispatch-head-height) !important;
+  min-height:var(--dispatch-head-height) !important;
+  max-height:var(--dispatch-head-height) !important;
+}
+
+.rescue-table tbody tr:nth-child(2),
+.rescue-table tbody tr:nth-child(3){
+  height:calc((100% - var(--dispatch-head-height)) / 2) !important;
+  min-height:0 !important;
+  max-height:none !important;
+}
+
+.rescue-table .rescue-head{
+  height:var(--dispatch-head-height) !important;
+  min-height:var(--dispatch-head-height) !important;
+  max-height:var(--dispatch-head-height) !important;
+  padding:0 4px !important;
+  vertical-align:middle !important;
+}
+
+/* 主表與專責救護的標頭採完全相同的文字規格。 */
+.fire-table thead th,
+.rescue-table .rescue-head,
+body.is-fullscreen .fire-table thead th,
+body.is-fullscreen .rescue-table .rescue-head{
+  font-size:var(--table-head-font-size) !important;
+  font-weight:700 !important;
+  line-height:1 !important;
+  padding-top:0 !important;
+  padding-bottom:0 !important;
+  vertical-align:middle !important;
+}
+
+/* 所有主看板姓名與救護姓名使用相同的行高與垂直置中。 */
+.fire-table .person-chip,
+.rescue-table .person-chip,
+body.is-fullscreen .fire-table .person-chip,
+body.is-fullscreen .rescue-table .person-chip{
+  line-height:1 !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  padding-top:0 !important;
+  padding-bottom:0 !important;
+}

@@ -2157,10 +2157,9 @@ $(function(){
       const size=Math.min(...sizes);
       items.forEach(el=>el.style.setProperty('font-size',`${size}px`,'important'));
     };
-    unify('.fire-table .person-chip');
-    unify('.fire-table .vehicle-chip');
-    unify('.rescue-table .person-chip');
-    unify('.rescue-table .vehicle-chip');
+    // v58：主表與專責救護姓名／車號跨表使用同一字級，避免上下看起來大小不同。
+    unify('.fire-table .person-chip, .rescue-table .person-chip');
+    unify('.fire-table .vehicle-chip, .rescue-table .vehicle-chip');
   }
 
   let fitBoardTextTimer = null;

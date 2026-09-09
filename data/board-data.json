@@ -108,10 +108,10 @@
     ]
   },
   "dataSource": {
-    "useLocalData": true
+    "useLocalData": false
   },
   "api": {
-    "gasWebAppUrl": "PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE",
+    "gasWebAppUrl": "https://script.google.com/macros/s/AKfycbxjcc7FSoyJfR8VnekOe6imOe0OVMohUik3ZPG751ShdrUfKf7Dqbf6ItBH_ed4CjNt9w/exec",
     "pollIntervalMs": 10000,
     "requestTimeoutMs": 15000
   },

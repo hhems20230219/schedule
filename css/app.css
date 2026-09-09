@@ -2354,61 +2354,44 @@ body.is-fullscreen .fire-table{
 }
 
 /* =========================================================
-   v55：第一梯次／第二梯次／專責救護區塊標題統一字級
+   v57：直式區塊標題依「視覺佔高」配置
    ---------------------------------------------------------
-   需求：三個直式區塊名稱一律採用目前「第一梯次出動」的視覺大小。
-   不再讓 rescue-title 或不同 RWD 規則各自縮小。
+   第一／第二梯次各 6 字，專責救護只有 4 字。
+   若三者使用相同 font-size，專責救護的整體文字高度只有約 2/3，
+   肉眼必然看起來比較小。因此不再錯誤地強制三者同字級。
+
+   基準：第一梯次出動 = 20px（使用者指定喜歡的大小）
+   專責救護：按 6:4 字數比例放大至 30px，使整體直式文字佔高接近。
 ========================================================= */
-.fire-table .echelon-cell,
-.rescue-table .rescue-title,
-body.is-fullscreen .fire-table .echelon-cell,
-body.is-fullscreen .rescue-table .rescue-title{
+.fire-table td.echelon-cell.section-vertical-title,
+body.is-fullscreen .fire-table td.echelon-cell.section-vertical-title{
   font-size:20px !important;
   font-weight:900 !important;
-  line-height:1.1 !important;
+  line-height:1 !important;
   letter-spacing:.12em !important;
   writing-mode:vertical-rl !important;
-  text-orientation:mixed !important;
-  -webkit-text-size-adjust:100% !important;
-  text-size-adjust:100% !important;
+  text-orientation:upright !important;
 }
 
-/* 小螢幕仍保持三者完全一致，只做共同縮放，不個別縮放。 */
-@media (max-width:767.98px), (max-height:620px){
-  .fire-table .echelon-cell,
-  .rescue-table .rescue-title,
-  body.is-fullscreen .fire-table .echelon-cell,
-  body.is-fullscreen .rescue-table .rescue-title{
+.rescue-table td.rescue-title.section-vertical-title,
+body.is-fullscreen .rescue-table td.rescue-title.section-vertical-title{
+  font-size:30px !important;
+  font-weight:900 !important;
+  line-height:1 !important;
+  letter-spacing:.12em !important;
+  writing-mode:vertical-rl !important;
+  text-orientation:upright !important;
+}
+
+/* 窄螢幕維持同一個 6:4 視覺比例，不再把兩者硬設成相同字級。 */
+@media (max-width:767.98px){
+  .fire-table td.echelon-cell.section-vertical-title,
+  body.is-fullscreen .fire-table td.echelon-cell.section-vertical-title{
     font-size:15px !important;
   }
-}
 
-
-/* =========================================================
-   v56：三個直式區塊標題改用單一共用規則
-   ---------------------------------------------------------
-   第一梯次出動／第二梯次出動／專責救護，不再各自吃
-   echelon-cell / rescue-title 的歷史 RWD 字級。
-   三者由 section-vertical-title 唯一控制，確保實際 glyph 大小一致。
-========================================================= */
-td.section-vertical-title,
-body.is-fullscreen td.section-vertical-title{
-  font-size:20px !important;
-  font-weight:900 !important;
-  line-height:1.1 !important;
-  letter-spacing:.12em !important;
-  writing-mode:vertical-rl !important;
-  text-orientation:mixed !important;
-  -webkit-text-size-adjust:100% !important;
-  text-size-adjust:100% !important;
-  transform:none !important;
-  zoom:1 !important;
-}
-
-/* 手機才三者一起縮小，絕不允許專責救護單獨縮小。 */
-@media (max-width:767.98px){
-  td.section-vertical-title,
-  body.is-fullscreen td.section-vertical-title{
-    font-size:15px !important;
+  .rescue-table td.rescue-title.section-vertical-title,
+  body.is-fullscreen .rescue-table td.rescue-title.section-vertical-title{
+    font-size:22px !important;
   }
 }

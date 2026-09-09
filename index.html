@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>火警出動人員車輛分配表</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"/>
+<link href="css/app.css?v=56" rel="stylesheet"/>
+</head>
+<body>
+<!-- =========================================================
+     頂部導覽列：標題、現在時間、全螢幕按鈕
+========================================================= -->
+<nav class="navbar navbar-dark px-2" id="topbar">
+<div class="container-fluid position-relative h-100 px-0">
+<button aria-label="快速配置" class="btn btn-outline-light border-0 fs-4" data-bs-target="#configOffcanvas" data-bs-toggle="offcanvas" type="button">
+      ☰
+    </button>
+<div class="position-absolute top-50 start-50 translate-middle" id="topbarTitle">
+      火警出動人員車輛分配表
+    </div>
+<div class="d-flex align-items-center gap-2 ms-auto">
+<div class="clock-block d-none d-sm-block">
+<div id="clockTime">--:--:--</div>
+<div id="clockDate">----</div>
+</div>
+<button class="btn btn-outline-light fw-bold" id="fullscreenBtn" type="button">
+<span class="me-1">⛶</span><span id="fullscreenText">全螢幕</span>
+</button>
+</div>
+</div>
+</nav>
+<!-- =========================================================
+     主看板：火警第一梯次 / 第二梯次人員與車輛配置
+========================================================= -->
+<main id="boardPage">
+<div id="boardShell">
+<!-- 火警區 -->
+<section id="fireArea">
+<div class="table-responsive h-100">
+<table class="table table-bordered fire-table align-middle">
+<colgroup>
+<col class="col-echelon"/>
+<col class="col-work"/>
+<col class="col-work"/>
+<col class="col-work"/>
+<col class="col-work"/>
+<col class="col-work"/>
+<col class="col-work"/>
+<col class="col-work"/>
+<col class="col-work"/>
+</colgroup>
+<thead>
+<tr>
+<th>梯次</th>
+<th>帶隊官</th>
+<th>車輛</th>
+<th>駕駛員</th>
+<th>瞄子手</th>
+<th>副瞄子手</th>
+<th>搜救小組</th>
+<th>攝影照相</th>
+<th>破壞小組</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="echelon-cell section-vertical-title" rowspan="3">第一梯次出動</td>
+<td class="drop-target" data-slot-id="first-1-leader" data-kind="person"></td>
+<td class="drop-target vehicle-cell" data-slot-id="first-1-vehicle" data-kind="vehicle"></td>
+<td class="drop-target" data-slot-id="first-1-driver" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-1-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-1-assistant-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-1-search" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-1-photo" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-1-break" data-kind="person"></td>
+</tr>
+<tr>
+<td class="drop-target" data-slot-id="first-2-leader" data-kind="person"></td>
+<td class="drop-target vehicle-cell" data-slot-id="first-2-vehicle" data-kind="vehicle"></td>
+<td class="drop-target" data-slot-id="first-2-driver" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-2-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-2-assistant-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-2-search" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-2-photo" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-2-break" data-kind="person"></td>
+</tr>
+<tr>
+<td class="drop-target" data-slot-id="first-3-leader" data-kind="person"></td>
+<td class="drop-target vehicle-cell" data-slot-id="first-3-vehicle" data-kind="vehicle"></td>
+<td class="drop-target" data-slot-id="first-3-driver" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-3-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-3-assistant-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-3-search" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-3-photo" data-kind="person"></td>
+<td class="drop-target" data-slot-id="first-3-break" data-kind="person"></td>
+</tr>
+<tr>
+<td class="echelon-cell section-vertical-title" rowspan="3">第二梯次出動</td>
+<td class="drop-target" data-slot-id="second-1-leader" data-kind="person"></td>
+<td class="drop-target vehicle-cell" data-slot-id="second-1-vehicle" data-kind="vehicle"></td>
+<td class="drop-target" data-slot-id="second-1-driver" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-1-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-1-assistant-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-1-search" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-1-photo" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-1-break" data-kind="person"></td>
+</tr>
+<tr>
+<td class="drop-target" data-slot-id="second-2-leader" data-kind="person"></td>
+<td class="drop-target vehicle-cell" data-slot-id="second-2-vehicle" data-kind="vehicle"></td>
+<td class="drop-target" data-slot-id="second-2-driver" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-2-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-2-assistant-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-2-search" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-2-photo" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-2-break" data-kind="person"></td>
+</tr>
+<tr>
+<td class="drop-target" data-slot-id="second-3-leader" data-kind="person"></td>
+<td class="drop-target vehicle-cell" data-slot-id="second-3-vehicle" data-kind="vehicle"></td>
+<td class="drop-target" data-slot-id="second-3-driver" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-3-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-3-assistant-nozzle" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-3-search" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-3-photo" data-kind="person"></td>
+<td class="drop-target" data-slot-id="second-3-break" data-kind="person"></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- =========================================================
+     下方區域：專責救護、休息、因公外出
+========================================================= -->
+<section id="bottomArea">
+<div class="row g-2 h-100 bottom-layout">
+<div class="bottom-col bottom-rescue">
+<div class="bottom-panel rescue-panel">
+<table class="table table-bordered rescue-table align-middle">
+<colgroup>
+<col class="rescue-side-col"/>
+<col class="rescue-work-col"/>
+<col class="rescue-work-col"/>
+<col class="rescue-work-col"/>
+<col class="rescue-work-col"/>
+</colgroup>
+<tbody>
+<tr>
+<td class="rescue-title section-vertical-title" rowspan="3">專責救護</td>
+<th class="rescue-head">救護車</th>
+<th class="rescue-head">救護員</th>
+<th class="rescue-head">救護員</th>
+<th class="rescue-head">支援／備勤</th>
+</tr>
+<tr>
+<td class="drop-target vehicle-cell" data-duty-vehicle="91車" data-kind="vehicle"></td>
+<td class="drop-target" data-duty-index="0" data-duty-source="備勤91" data-kind="person"></td>
+<td class="drop-target" data-duty-index="1" data-duty-source="備勤91" data-kind="person"></td>
+<td class="drop-target" data-duty-index="2" data-duty-source="備勤91" data-kind="person"></td>
+</tr>
+<tr>
+<td class="drop-target vehicle-cell" data-duty-vehicle="92車" data-kind="vehicle"></td>
+<td class="drop-target" data-duty-index="0" data-duty-source="備勤救災" data-kind="person"></td>
+<td class="drop-target" data-duty-index="1" data-duty-source="備勤救災" data-kind="person"></td>
+<td class="drop-target" data-duty-index="2" data-duty-source="備勤救災" data-kind="person"></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="bottom-col bottom-status">
+<div class="bottom-panel">
+<div class="panel-title">休息</div>
+<div class="panel-body-drop" data-duty-source="休息時間" data-status="rest" id="restingBody"></div>
+</div>
+</div>
+<div class="bottom-col bottom-status">
+<div class="bottom-panel">
+<div class="panel-title">因公外出</div>
+<div class="panel-body-drop" data-duty-source="因公外出" data-status="official" id="officialBody"></div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- =========================================================
+     快速配置側欄：Excel 匯入、車輛池、人員池、同步狀態
+========================================================= -->
+<div class="offcanvas offcanvas-start" id="configOffcanvas" tabindex="-1">
+<div class="offcanvas-header text-bg-success">
+<h5 class="offcanvas-title fw-bold">快速配置</h5>
+<button class="btn-close btn-close-white" data-bs-dismiss="offcanvas" type="button"></button>
+</div>
+<div class="offcanvas-body">
+<div class="alert alert-light border small">
+<div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+<div class="fw-bold">目前勤務：<span id="currentDutyPeriod">尚未匯入</span></div>
+<button class="btn btn-outline-success btn-sm py-0 px-2 fw-bold" id="dutyPeriodEditBtn" type="button" disabled>編輯</button>
+<span class="badge text-bg-warning d-none" id="dutyPeriodTestBadge">測試模式</span>
+</div>
+<div class="d-none mt-2" id="dutyPeriodEditor">
+<div class="input-group input-group-sm">
+<select class="form-select" id="dutyPeriodSelect" aria-label="測試勤務時段"></select>
+<button class="btn btn-success fw-bold" id="dutyPeriodApplyBtn" type="button">套用</button>
+<button class="btn btn-outline-secondary fw-bold" id="dutyPeriodNowBtn" type="button">依現在時間</button>
+</div>
+<div class="form-text">測試模式只在目前瀏覽器預覽，不會自動同步到 Google Sheet；按「依現在時間」會回到正式即時勤務。</div>
+</div>
+<div class="mb-1 mt-2">同步狀態：<span id="syncStatus">尚未連線</span></div>
+第一次沒有資料時看板為空白；匯入 Excel 後立即同步，之後每次拖曳放開也會立即同步，不需要另外按儲存。
+</div>
+<div class="d-grid gap-2 mb-3">
+<button class="btn btn-primary fw-bold" id="importBtn">匯入每日勤務表 Excel</button>
+<button class="btn btn-outline-dark fw-bold" id="masterDataBtn" type="button">編輯人員／職務／車輛</button>
+</div>
+<div class="pool-section">
+<div class="pool-header">
+<span>人員池</span>
+<span class="badge text-bg-secondary" id="personCount">0</span>
+</div>
+<div class="p-2 border-bottom">
+<input class="form-control" id="personSearch" placeholder="搜尋姓名／番號"/>
+</div>
+<div class="pool-body" id="personPool"></div>
+</div>
+
+<div class="pool-section pool-section-duty">
+<div class="pool-header">
+<span>職務池</span>
+<span class="badge text-bg-secondary" id="specialDutyCount">0</span>
+</div>
+<div class="px-2 py-1 small text-secondary">放置可直接拖曳到火警配置表的職務，例如「火警值班」。</div>
+<div class="pool-body" id="specialDutyPool"></div>
+</div>
+
+<div class="pool-section">
+<div class="pool-header">
+<span>車輛池</span>
+<span class="badge text-bg-secondary" id="vehicleCount">0</span>
+</div>
+<div class="pool-body" id="vehiclePool"></div>
+</div></div>
+</div>
+<!-- =========================================================
+     拖曳返回區：把人員或車輛放回原本的池中
+========================================================= -->
+<div id="returnZone">放回池中</div>
+<!-- =========================================================
+     Excel 匯入視窗：預覽自動辨識結果後再確認匯入
+========================================================= -->
+<div class="modal fade" id="importModal" tabindex="-1">
+<div class="modal-dialog modal-lg modal-dialog-scrollable">
+<div class="modal-content">
+<div class="modal-header text-bg-success">
+<h5 class="modal-title fw-bold">匯入每日勤務分配表</h5>
+<button class="btn-close btn-close-white" data-bs-dismiss="modal" type="button"></button>
+</div>
+<div class="modal-body"><div class="alert alert-light border small">選擇每日勤務分配表後，系統會自動找人員番號、姓名、身分，以及「備勤91／備勤救災」時段，不需要手動選欄位。</div><div class="mb-3" id="importDetectStatus">尚未選擇檔案</div><div class="table-responsive border rounded" id="previewWrap"></div></div>
+<div class="modal-footer">
+<button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+<button class="btn btn-success fw-bold" disabled="disabled" id="confirmImport">確認匯入</button>
+</div>
+</div>
+</div>
+</div>
+<input accept=".xlsx,.xls,.csv" hidden="" id="excelFile" type="file"/>
+<!-- =========================================================
+     前端資料管理：人員／職務／車輛
+     v42：改回三個標籤頁，一次只顯示一類資料。
+========================================================= -->
+<div class="modal fade" id="masterDataModal" tabindex="-1">
+<div class="modal-dialog modal-fullscreen-xl-down modal-xl modal-dialog-scrollable">
+<div class="modal-content">
+<div class="modal-header text-bg-dark">
+<div>
+<h5 class="modal-title fw-bold mb-0">資料管理</h5>
+<div class="small opacity-75">人員、職務、車輛分開管理；切換上方標籤即可。</div>
+</div>
+<button class="btn-close btn-close-white" data-bs-dismiss="modal" type="button"></button>
+</div>
+<div class="modal-body master-data-body">
+<ul class="nav nav-tabs master-data-tabs mb-3" role="tablist">
+<li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#personManagePane" type="button" role="tab">人員</button></li>
+<li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#roleManagePane" type="button" role="tab">職務</button></li>
+<li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#vehicleManagePane" type="button" role="tab">車輛</button></li>
+</ul>
+<div class="tab-content">
+<div class="tab-pane fade show active" id="personManagePane" role="tabpanel">
+<section class="master-card">
+<div class="master-card-head">
+<div><strong>人員</strong><small>每日勤務表人員與前端自行增加的人員都在這裡管理</small></div>
+<div class="d-flex gap-2 flex-wrap justify-content-end">
+<button class="btn btn-outline-success btn-sm fw-bold" id="batchVolunteerBtn" type="button">批次新增義消</button>
+<button class="btn btn-success btn-sm fw-bold" id="addOtherPersonBtn" type="button">新增人員</button>
+</div>
+</div>
+<div class="master-table-wrap">
+<table class="table table-sm table-hover align-middle mb-0">
+<thead><tr><th>番號</th><th>姓名</th><th>人員職務</th><th>來源</th><th class="text-end">操作</th></tr></thead>
+<tbody id="personManageBody"></tbody>
+</table>
+</div>
+</section>
+</div>
+<div class="tab-pane fade" id="roleManagePane" role="tabpanel">
+<section class="master-card">
+<div class="master-card-head">
+<div><strong>職務池</strong><small>這裡管理的是可拖曳的「職務」，例如火警值班，不是人員職稱</small></div>
+<button class="btn btn-success btn-sm fw-bold" id="addRoleBtn" type="button">新增職務</button>
+</div>
+<div class="master-table-wrap">
+<table class="table table-sm table-hover align-middle mb-0">
+<thead><tr><th>職務名稱</th><th class="text-end">操作</th></tr></thead>
+<tbody id="roleManageBody"></tbody>
+</table>
+</div>
+</section>
+</div>
+<div class="tab-pane fade" id="vehicleManagePane" role="tabpanel">
+<section class="master-card">
+<div class="master-card-head">
+<div><strong>車輛</strong><small>管理可供調派的車輛名稱與類型</small></div>
+<button class="btn btn-success btn-sm fw-bold" id="addVehicleBtn" type="button">新增車輛</button>
+</div>
+<div class="master-table-wrap">
+<table class="table table-sm table-hover align-middle mb-0">
+<thead><tr><th>車輛名稱</th><th>類型</th><th class="text-end">操作</th></tr></thead>
+<tbody id="vehicleManageBody"></tbody>
+</table>
+</div>
+</section>
+</div>
+</div>
+</div>
+<div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal" type="button">關閉</button></div>
+</div>
+</div>
+</div>
+
+<!-- =========================================================
+     義消批次新增
+     每行一位姓名，也可貼「番號,姓名」或 Excel 兩欄。
+========================================================= -->
+<div class="modal fade" id="volunteerBatchModal" tabindex="-1" data-bs-backdrop="static">
+<div class="modal-dialog modal-dialog-centered modal-lg">
+<div class="modal-content">
+<div class="modal-header">
+<div>
+<h5 class="modal-title fw-bold mb-0">批次新增義消</h5>
+<div class="small text-secondary">新增的人員職務一律為「義消」</div>
+</div>
+<button class="btn-close" data-bs-dismiss="modal" type="button"></button>
+</div>
+<div class="modal-body">
+<label class="form-label fw-bold" for="volunteerBatchText">貼上義消名單</label>
+<textarea class="form-control font-monospace" id="volunteerBatchText" rows="12" placeholder="王小明&#10;陳大華&#10;&#10;或：&#10;101,王小明&#10;102,陳大華"></textarea>
+<div class="form-text">一行一人。支援「姓名」、「番號,姓名」，也可直接從 Excel 複製番號＋姓名兩欄貼上。重複姓名會自動略過。</div>
+<div class="alert alert-warning py-2 mt-3 mb-0 d-none" id="volunteerBatchResult"></div>
+</div>
+<div class="modal-footer">
+<button class="btn btn-secondary" data-bs-dismiss="modal" type="button">取消</button>
+<button class="btn btn-success fw-bold" id="saveVolunteerBatchBtn" type="button">批次加入</button>
+</div>
+</div>
+</div>
+</div>
+
+
+<!-- 資料編輯子視窗：所有新增/編輯共用，避免 browser prompt。 -->
+<div class="modal fade" id="dataEditorModal" tabindex="-1" data-bs-backdrop="static">
+<div class="modal-dialog modal-dialog-centered">
+<div class="modal-content">
+<div class="modal-header">
+<h5 class="modal-title fw-bold" id="dataEditorTitle">編輯資料</h5>
+<button class="btn-close" data-bs-dismiss="modal" type="button"></button>
+</div>
+<div class="modal-body">
+<form id="dataEditorForm" class="row g-3" autocomplete="off"></form>
+<div class="alert alert-light border small mt-3 mb-0 d-none" id="dataEditorHint"></div>
+</div>
+<div class="modal-footer">
+<button class="btn btn-secondary" data-bs-dismiss="modal" type="button">取消</button>
+<button class="btn btn-success fw-bold" id="dataEditorSaveBtn" type="button">儲存</button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- =========================================================
+     系統訊息 Toast：顯示匯入、同步、錯誤等提示
+========================================================= -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+<div class="toast" id="appToast" role="alert">
+<div class="toast-header">
+<strong class="me-auto">系統訊息</strong>
+<button class="btn-close" data-bs-dismiss="toast" type="button"></button>
+</div>
+<div class="toast-body" id="toastBody"></div>
+</div>
+</div>
+<!-- =========================================================
+     JavaScript 套件：jQuery、Bootstrap、SortableJS、SheetJS
+========================================================= -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

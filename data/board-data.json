@@ -1,0 +1,206 @@
+{
+  "app": {
+    "title": "火警出動人員車輛分配表",
+    "autoFullscreen": true
+  },
+  "roles": [
+    "隊員",
+    "小隊長",
+    "役男",
+    "分隊長",
+    "中隊長",
+    "義消"
+  ],
+  "vehicles": [
+    {
+      "name": "11車",
+      "type": "消防車"
+    },
+    {
+      "name": "12車",
+      "type": "消防車"
+    },
+    {
+      "name": "16車",
+      "type": "消防車"
+    },
+    {
+      "name": "31車",
+      "type": "消防車"
+    },
+    {
+      "name": "61車",
+      "type": "消防車"
+    },
+    {
+      "name": "71救助車",
+      "type": "救助車"
+    },
+    {
+      "name": "91車",
+      "type": "救護車"
+    },
+    {
+      "name": "92車",
+      "type": "救護車"
+    },
+    {
+      "name": "中隊指揮車",
+      "type": "指揮車"
+    },
+    {
+      "name": "警備車",
+      "type": "警備車"
+    }
+  ],
+  "todayRoster": [],
+  "dutySchedule": [],
+  "importSettings": {
+    "duty91Keywords": [
+      "備勤91",
+      "備勤(91)",
+      "備勤（91）"
+    ],
+    "duty92Keywords": [
+      "備勤救災",
+      "備勤(救災)",
+      "備勤（救災）",
+      "備勤救助",
+      "備勤(救助)",
+      "備勤（救助）"
+    ],
+    "supportedRoles": [
+      "隊員",
+      "小隊長",
+      "役男",
+      "分隊長",
+      "中隊長",
+      "義消"
+    ],
+    "dutyWatchKeywords": [
+      "值班"
+    ],
+    "atStationKeywords": [
+      "在隊備勤"
+    ],
+    "restKeywords": [
+      "休息時間"
+    ],
+    "dutyRegionEndKeywords": [
+      "服勤編組"
+    ],
+    "personStatusKeywords": [
+      "輪休",
+      "請休",
+      "補休",
+      "公假",
+      "連續補休",
+      "休假役男",
+      "請替"
+    ],
+    "blockingStatusKeywords": [
+      "輪休",
+      "請休",
+      "補休",
+      "公假",
+      "連續補休",
+      "休假役男"
+    ]
+  },
+  "dataSource": {
+    "useLocalData": true
+  },
+  "api": {
+    "gasWebAppUrl": "PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE",
+    "pollIntervalMs": 10000,
+    "requestTimeoutMs": 15000
+  },
+  "baseAssignments": [
+    {
+      "slotId": "first-1-leader",
+      "type": "person",
+      "no": 20,
+      "name": "宋哲仲",
+      "role": "小隊長"
+    },
+    {
+      "slotId": "first-1-vehicle",
+      "type": "vehicle",
+      "value": "11車"
+    },
+    {
+      "slotId": "first-1-driver",
+      "type": "person",
+      "no": 24,
+      "name": "謝耀陞",
+      "role": "隊員"
+    },
+    {
+      "slotId": "first-1-nozzle",
+      "type": "person",
+      "no": 31,
+      "name": "李佳川",
+      "role": "隊員"
+    },
+    {
+      "slotId": "first-1-assistant-nozzle",
+      "type": "person",
+      "no": 8,
+      "name": "蕭聘議",
+      "role": "隊員"
+    },
+    {
+      "slotId": "first-2-leader",
+      "type": "person",
+      "no": 1,
+      "name": "陳宗揚",
+      "role": "分隊長"
+    },
+    {
+      "slotId": "first-2-vehicle",
+      "type": "vehicle",
+      "value": "61車"
+    },
+    {
+      "slotId": "first-2-driver",
+      "type": "person",
+      "no": 27,
+      "name": "羅叡澤",
+      "role": "隊員"
+    },
+    {
+      "slotId": "first-3-vehicle",
+      "type": "vehicle",
+      "value": "31車"
+    },
+    {
+      "slotId": "first-3-driver",
+      "type": "person",
+      "no": 28,
+      "name": "林亮佑",
+      "role": "隊員"
+    },
+    {
+      "slotId": "first-3-nozzle",
+      "type": "person",
+      "no": 34,
+      "name": "王聖雄",
+      "role": "隊員"
+    },
+    {
+      "slotId": "second-3-vehicle",
+      "type": "vehicle",
+      "value": "中隊指揮車"
+    },
+    {
+      "slotId": "second-3-driver",
+      "type": "person",
+      "no": 26,
+      "name": "戴志恆",
+      "role": "隊員"
+    }
+  ],
+  "dutyPool": [
+    "火警值班"
+  ]
+}

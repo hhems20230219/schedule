@@ -2889,6 +2889,48 @@ $(function(){
     };
   }
 
+  /*
+     v72：正式勤務表使用的很多不是 Excel「合併儲存格」，
+     而是「跨欄置中（Center Across Selection）」。
+
+     這種格式在 SheetJS 中：
+     - 標題只存在區塊第一格
+     - 後面的欄位是空白
+     - !merges 不一定有任何資料
+
+     因此勤務欄位範圍不能只看 !merges。
+     以同一個表頭列的「下一個非空白表頭」作為區塊終點：
+       D 備勤〈91〉 → 下一標題 F，所以範圍 D:E
+       V 備勤(救災) → 下一標題 X，所以範圍 V:W
+       X 在隊備勤 → 下一標題 AD，所以範圍 X:AC
+       AD 休息時間 → 下一標題 AH，所以範圍 AD:AG
+  */
+  function getLogicalHeaderSpan(sheet,matrix,header){
+    if(!header) return null;
+
+    const merged=getMergeSpan(sheet,header.row,header.col);
+    if(merged.endCol>merged.startCol){
+      return merged;
+    }
+
+    const row=matrix[header.row] || [];
+    let nextCol=row.length;
+
+    for(let c=header.col+1;c<row.length;c++){
+      if(cleanText(row[c])){
+        nextCol=c;
+        break;
+      }
+    }
+
+    return {
+      startRow:header.row,
+      endRow:header.row,
+      startCol:header.col,
+      endCol:Math.max(header.col,nextCol-1)
+    };
+  }
+
   function getMergeSpan(sheet,row,col){
     const merges = sheet['!merges'] || [];
 
@@ -3175,14 +3217,15 @@ $(function(){
     const keyRest = settings.restKeywords || ['休息時間'];
     const keyDutyEnd = settings.dutyRegionEndKeywords || ['服勤編組'];
 
-    const header91 = findKeywordCell(matrix,key91);
-    const header92 = findKeywordCell(matrix,key92);
+    // 正式勤務表的這些欄名都是固定標題，使用正規化後的「完全相等」比對。
+    // 不再用 keyword.includes(text) 的模糊規則，避免抓到相似但不同的勤務欄。
+    const header91 = findExactKeywordCell(matrix,key91);
+    const header92 = findExactKeywordCell(matrix,key92);
     // 「值班」與「值班指導員」是兩個不同欄位。
-    // 火警值班只能讀取欄名完全等於「值班」的那一欄，不能用模糊比對抓到「值班指導員」。
     const headerWatch = findExactKeywordCell(matrix,keyWatch);
-    const headerAtStation = findKeywordCell(matrix,keyAtStation);
-    const headerRest = findKeywordCell(matrix,keyRest);
-    const headerDutyEnd = findKeywordCell(matrix,keyDutyEnd);
+    const headerAtStation = findExactKeywordCell(matrix,keyAtStation);
+    const headerRest = findExactKeywordCell(matrix,keyRest);
+    const headerDutyEnd = findExactKeywordCell(matrix,keyDutyEnd);
     const timeCol = detectTimeColumn(matrix);
 
     if(!header91 || !header92 || !headerAtStation || !headerRest || timeCol === null){
@@ -3198,11 +3241,12 @@ $(function(){
       };
     }
 
-    const span91 = getMergeSpan(sheet,header91.row,header91.col);
-    const span92 = getMergeSpan(sheet,header92.row,header92.col);
-    const spanWatch = headerWatch ? getMergeSpan(sheet,headerWatch.row,headerWatch.col) : null;
-    const spanAtStation = getMergeSpan(sheet,headerAtStation.row,headerAtStation.col);
-    const spanRest = getMergeSpan(sheet,headerRest.row,headerRest.col);
+    // 這裡必須支援「跨欄置中」，不能只依賴 Excel !merges。
+    const span91 = getLogicalHeaderSpan(sheet,matrix,header91);
+    const span92 = getLogicalHeaderSpan(sheet,matrix,header92);
+    const spanWatch = headerWatch ? getLogicalHeaderSpan(sheet,matrix,headerWatch) : null;
+    const spanAtStation = getLogicalHeaderSpan(sheet,matrix,headerAtStation);
+    const spanRest = getLogicalHeaderSpan(sheet,matrix,headerRest);
 
     // 勤務區從時間欄右側開始，到「服勤編組」前一欄為止。
     // 「服勤編組」本身是人數（例如 10、11），不是人員番號；不可納入 allDutyNumbers。
@@ -3216,7 +3260,7 @@ $(function(){
       spanRest.endCol
     );
     const dutyEndCol = headerDutyEnd
-      ? Math.max(dutyStartCol,getMergeSpan(sheet,headerDutyEnd.row,headerDutyEnd.col).startCol - 1)
+      ? Math.max(dutyStartCol,getLogicalHeaderSpan(sheet,matrix,headerDutyEnd).startCol - 1)
       : fallbackDutyEnd;
 
     const currentByCol = new Map();

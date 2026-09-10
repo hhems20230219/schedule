@@ -2869,3 +2869,55 @@ body.is-fullscreen .rescue-table .person-chip{
   pointer-events:none !important;
   user-select:none !important;
 }
+
+/* =========================================================
+   v65：休息 / 因公外出統一上下排列
+   ---------------------------------------------------------
+   兩個狀態區都採單欄由上往下排列。
+   同時覆蓋舊手機版 50% 雙欄規則。
+========================================================= */
+#restingBody,
+#officialBody{
+  display:flex !important;
+  flex-direction:column !important;
+  flex-wrap:nowrap !important;
+  align-items:stretch !important;
+  align-content:stretch !important;
+  justify-content:flex-start !important;
+  gap:4px !important;
+  padding:5px !important;
+  overflow:hidden !important;
+}
+
+#restingBody .status-chip,
+#officialBody .status-chip{
+  flex:1 1 0 !important;
+  width:100% !important;
+  max-width:100% !important;
+  min-width:0 !important;
+  min-height:0 !important;
+  height:auto !important;
+  max-height:44px !important;
+}
+
+@media (max-width:768px){
+  #restingBody,
+  #officialBody{
+    display:flex !important;
+    flex-direction:column !important;
+    flex-wrap:nowrap !important;
+    align-items:stretch !important;
+    gap:4px !important;
+  }
+
+  #restingBody .status-chip,
+  #officialBody .status-chip{
+    flex:1 1 0 !important;
+    width:100% !important;
+    max-width:100% !important;
+    min-height:0 !important;
+    height:auto !important;
+    max-height:44px !important;
+  }
+}
+

@@ -1558,9 +1558,17 @@ $(function(){
 
          勤務表外的中隊長／義消仍由 manualPersonnel 提供，不受這個條件限制。
       */
+      /*
+         v65：人員池的正確母集合是「目前時段有勤務的人」，
+         不是只有「在隊備勤」。
+         因此值班或其他當前勤務人員，只要沒有被放到火警表、
+         專責救護、休息、因公外出，也不是請假/輪休等阻擋狀態，
+         就必須留在人員池，不能憑空消失。
+         火警隨機配置仍然只使用「在隊備勤」，兩者用途分開。
+      */
       const isAvailableNow=!hasDetailedDutyData
         ? (!!noText && scheduledToday.has(noText))
-        : (!!noText && atStationNow.has(noText));
+        : (!!noText && currentDuty.has(noText));
 
       if(!isAvailableNow || hasBlockingDutyStatus(noText)) return;
       if(seen.has(item.name)) return;

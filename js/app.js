@@ -1882,91 +1882,76 @@ $(function(){
   function addOtherPerson(){openPersonEditor('new',-1);}
 
   /* =========================================================
-     14-3. 義消批次新增
-     ---------------------------------------------------------
-     每行可直接貼一個姓名；也支援「番號,姓名」或從 Excel 貼上
-     「番號<TAB>姓名」。批次新增的人員職務一律為「義消」。
+     14-3. 批次新增人員
+     支援姓名、番號＋姓名、番號＋姓名＋職務。
   ========================================================= */
+  function refreshBatchDefaultRoleOptions(){
+    const roles=[...new Set((Array.isArray(roleMaster)?roleMaster:[]).map(x=>String(x||'').trim()).filter(Boolean))];
+    ['隊員','小隊長','役男','分隊長','中隊長','義消'].forEach(role=>{if(!roles.includes(role))roles.push(role);});
+    const $select=$('#volunteerBatchDefaultRole');
+    const previous=String($select.val()||'').trim();
+    $select.empty();
+    roles.forEach(role=>$select.append(new Option(role,role)));
+    $select.val(roles.includes(previous)?previous:(roles.includes('隊員')?'隊員':roles[0]));
+  }
+
   function openVolunteerBatch(){
     $('#volunteerBatchText').val('');
     $('#volunteerBatchResult').addClass('d-none').text('');
-
+    refreshBatchDefaultRoleOptions();
     if($('#masterDataModal').hasClass('show')){
       $('#masterDataModal').one('hidden.bs.modal',function(){
         volunteerBatchModal.show();
         setTimeout(()=>$('#volunteerBatchText').trigger('focus'),150);
       });
       masterDataModal.hide();
-    }else{
-      volunteerBatchModal.show();
-    }
+    }else volunteerBatchModal.show();
   }
 
   function parseVolunteerBatchLine(rawLine){
-    const line=String(rawLine || '').trim();
-    if(!line) return null;
-
-    let parts=line.split(/\t|,|，|;|；/).map(x=>x.trim()).filter(Boolean);
+    const line=String(rawLine||'').trim();
+    if(!line)return null;
+    const parts=line.split(/\t|,|，|;|；/).map(x=>x.trim()).filter(Boolean);
     if(parts.length>=2){
-      const first=parts[0];
-      const second=parts[1];
-      if(/^\d+$/.test(first)) return {no:first,name:second};
-      return {no:'',name:first};
+      if(/^\d+$/.test(parts[0]))return {no:parts[0],name:parts[1]||'',role:parts[2]||''};
+      return {no:'',name:parts[0],role:parts[1]||''};
     }
-
     const spaced=line.match(/^(\d+)\s+(.+)$/);
-    if(spaced) return {no:spaced[1],name:spaced[2].trim()};
-
-    return {no:'',name:line};
+    if(spaced)return {no:spaced[1],name:spaced[2].trim(),role:''};
+    return {no:'',name:line,role:''};
   }
 
   function saveVolunteerBatch(){
-    const lines=String($('#volunteerBatchText').val() || '').split(/\r?\n/);
-    let added=0, skipped=0;
-    const existingNames=new Set([
-      ...todayRoster.map(x=>String(x.name || '').trim()),
-      ...manualPersonnel.map(x=>String(x.name || '').trim())
-    ].filter(Boolean));
-    const existingNos=new Set([
-      ...todayRoster.map(x=>String(x.no ?? '').trim()),
-      ...manualPersonnel.map(x=>String(x.no ?? '').trim())
-    ].filter(Boolean));
+    const lines=String($('#volunteerBatchText').val()||'').split(/\r?\n/);
+    const defaultRole=String($('#volunteerBatchDefaultRole').val()||'隊員').trim()||'隊員';
+    let added=0,skipped=0;
+    const existingNames=new Set([...todayRoster.map(x=>String(x.name||'').trim()),...manualPersonnel.map(x=>String(x.name||'').trim())].filter(Boolean));
+    const existingNos=new Set([...todayRoster.map(x=>String(x.no??'').trim()),...manualPersonnel.map(x=>String(x.no??'').trim())].filter(Boolean));
 
     lines.forEach(line=>{
       const parsed=parseVolunteerBatchLine(line);
-      if(!parsed || !parsed.name) return;
-      const parsedNo=String(parsed.no ?? '').trim();
-      if(existingNames.has(parsed.name) || (parsedNo && existingNos.has(parsedNo))){skipped++;return;}
-
-      manualPersonnel.push({
-        id:`manual-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
-        no:parsed.no,
-        name:parsed.name,
-        role:'義消'
-      });
+      if(!parsed||!parsed.name)return;
+      const parsedNo=String(parsed.no??'').trim();
+      const parsedRole=String(parsed.role||defaultRole).trim()||defaultRole;
+      if(existingNames.has(parsed.name)||(parsedNo&&existingNos.has(parsedNo))){skipped++;return;}
+      manualPersonnel.push({id:`manual-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,no:parsedNo,name:parsed.name,role:parsedRole});
+      if(parsedRole&&!roleMaster.includes(parsedRole))roleMaster.push(parsedRole);
       existingNames.add(parsed.name);
-      if(parsedNo) existingNos.add(parsedNo);
+      if(parsedNo)existingNos.add(parsedNo);
       added++;
     });
 
-    if(!roleMaster.includes('義消')) roleMaster.push('義消');
-
     if(!added){
-      $('#volunteerBatchResult').removeClass('d-none').text(skipped ? `沒有新增人員；${skipped} 筆姓名已存在。` : '沒有可新增的姓名。');
+      $('#volunteerBatchResult').removeClass('d-none').text(skipped?`沒有新增人員；略過 ${skipped} 筆重複姓名／番號。`:'沒有可新增的人員。');
       return;
     }
-
-    syncAll();
-    refreshMasterDataUi();
-    queueAutoSave('batch-volunteers',50);
+    syncAll();refreshMasterDataUi();queueAutoSave('batch-personnel',50);
     volunteerBatchModal.hide();
-    toast(`已批次新增 ${added} 位義消${skipped ? `，略過 ${skipped} 筆重複姓名／番號` : ''}`);
-
+    toast(`已批次新增 ${added} 位人員${skipped?`，略過 ${skipped} 筆重複姓名／番號`:''}`);
     setTimeout(()=>{
-      refreshMasterDataUi();
-      masterDataModal.show();
+      refreshMasterDataUi();masterDataModal.show();
       const trigger=document.querySelector('[data-bs-target="#personManagePane"]');
-      if(trigger) bootstrap.Tab.getOrCreateInstance(trigger).show();
+      if(trigger)bootstrap.Tab.getOrCreateInstance(trigger).show();
     },180);
   }
 
@@ -2734,6 +2719,7 @@ $(function(){
   ========================================================= */
 
   let pendingImport = null;
+  let pendingWorkbook = null;
 
   $('#importBtn').on('click',function(){
     $('#excelFile').trigger('click');
@@ -2901,6 +2887,32 @@ $(function(){
     return matrix?.[span.startRow]?.[span.startCol] ?? '';
   }
 
+  /*
+     v70：正式勤務表大量使用「跨欄置中」。
+     不能假設番號右邊第 1 格就是姓名；若番號本身橫跨多欄，
+     下一個有效欄位應從該合併範圍的尾端再往右找。
+  */
+  function nextMergedCell(sheet,matrix,row,col,direction=1,maxSteps=10){
+    let cursor=col;
+    for(let step=0;step<maxSteps;step++){
+      const currentSpan=getMergeSpan(sheet,row,cursor);
+      cursor=direction>0 ? currentSpan.endCol+1 : currentSpan.startCol-1;
+      if(cursor<0) return null;
+
+      const rowData=matrix[row] || [];
+      if(cursor>=rowData.length && direction>0) return null;
+
+      const span=getMergeSpan(sheet,row,cursor);
+      const value=matrix?.[span.startRow]?.[span.startCol] ?? '';
+      if(String(value ?? '').trim()){
+        return {row:span.startRow,col:span.startCol,value,span};
+      }
+
+      cursor=direction>0 ? span.endCol : span.startCol;
+    }
+    return null;
+  }
+
   function sheetMatrix(sheet){
     return XLSX.utils.sheet_to_json(sheet,{
       header:1,
@@ -2959,7 +2971,7 @@ $(function(){
      同一番號若在勤務內容出現很多次，只會保留真正找到
      「姓名 + 身分」的完整人員資料，不會把勤務數字誤當名冊。
   ========================================================= */
-  function detectPersonnel(matrix){
+  function detectPersonnel(sheet,matrix){
     const byNo = new Map();
 
     for(let r=0;r<matrix.length;r++){
@@ -2969,41 +2981,43 @@ $(function(){
         const no = numberFromCell(row[c]);
         if(no === null || no <= 0) continue;
 
+        // 只處理合併區左上角，避免同一個跨欄番號被重複解析。
+        const noSpan=getMergeSpan(sheet,r,c);
+        if(noSpan.startRow!==r || noSpan.startCol!==c) continue;
+
         let role = '';
         let name = '';
 
-        // A. 最常見：番號右邊緊鄰就是「身分 姓名」。
-        // 只看右邊第一格，避免把左側勤務區的數字誤配到
-        // 同一列較遠的人員名冊，例如 P 欄的勤務數字誤配 S 欄姓名。
-        if(c+1 < row.length){
-          const parsed = parseRoleAndName(row[c+1]);
+        const right1=nextMergedCell(sheet,matrix,r,c,1,4);
+        const right2=right1 ? nextMergedCell(sheet,matrix,r,right1.col,1,4) : null;
+        const left1=nextMergedCell(sheet,matrix,r,c,-1,3);
+
+        // A. 番號 →「職務 姓名」，中間即使因跨欄置中有空白欄也可辨識。
+        if(right1){
+          const parsed=parseRoleAndName(right1.value);
           if(parsed.role && parsed.name){
-            role = parsed.role;
-            name = parsed.name;
+            role=parsed.role;
+            name=parsed.name;
           }
         }
 
-        // B. 身分在番號左邊、姓名在右邊，例如：役男 | 37 | 曾得安。
-        if(!name){
-          // 實際勤務表的「役男 | 番號 | 姓名」就是左右各一格。
-          // 限定相鄰可大幅降低勤務區數字被誤判成人員番號。
-          const candidateRole = c-1 >= 0 ? roleFromText(row[c-1]) : '';
-          const candidateName = c+1 < row.length ? nameFromCell(row[c+1]) : '';
-
+        // B. 「職務」← 番號 → 姓名，例如役男區。
+        if(!name && left1 && right1){
+          const candidateRole=roleFromText(left1.value);
+          const candidateName=nameFromCell(right1.value);
           if(candidateRole && candidateName){
-            role = candidateRole;
-            name = candidateName;
+            role=candidateRole;
+            name=candidateName;
           }
         }
 
-        // C. 番號右邊先是身分，再下一格才是姓名。
-        if(!name && c+2 < row.length){
-          // 兼容「番號 | 身分 | 姓名」三格格式，同樣只接受相鄰欄位。
-          const candidateRole = roleFromText(row[c+1]);
-          const candidateName = nameFromCell(row[c+2]);
+        // C. 番號 → 職務 → 姓名。
+        if(!name && right1 && right2){
+          const candidateRole=roleFromText(right1.value);
+          const candidateName=nameFromCell(right2.value);
           if(candidateRole && candidateName){
-            role = candidateRole;
-            name = candidateName;
+            role=candidateRole;
+            name=candidateName;
           }
         }
 
@@ -3505,73 +3519,121 @@ $(function(){
   }
 
   /* =========================================================
-     23. Excel 檔案讀取與自動偵測最佳工作表
-  ========================================================= */
-  $('#excelFile').on('change',async function(){
-    const file = this.files && this.files[0];
-    if(!file) return;
+     23. Excel 檔案讀取與「手動選擇工作表」
+     ---------------------------------------------------------
+     正式勤務表一個檔案可能同時包含 123 / 231 / 321 等工作表。
+     不再由系統猜最佳工作表；匯入時由使用者明確選擇。
 
-    pendingImport = null;
+     注意：
+     - 大量跨欄置中由 getMergeSpan / nextMergedCell 處理。
+     - A、B、C、D... 等勤務代號不做任何人員轉換；
+       parseNumberList 本來就只接受數字番號。
+  ========================================================= */
+  function parseSelectedImportSheet(){
+    pendingImport=null;
     $('#confirmImport').prop('disabled',true);
     $('#previewWrap').empty();
-    $('#importDetectStatus').text('正在解析勤務表…');
+
+    if(!pendingWorkbook){
+      $('#importDetectStatus').text('尚未選擇檔案');
+      return;
+    }
+
+    const sheetName=String($('#importSheetSelect').val() || '').trim();
+    if(!sheetName || !pendingWorkbook.Sheets[sheetName]){
+      $('#importDetectStatus').html('<span class="text-danger fw-bold">請先選擇要匯入的工作表。</span>');
+      return;
+    }
+
+    $('#importDetectStatus').html(`正在解析工作表 <b>${escapeHtml(sheetName)}</b>…`);
 
     try{
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer,{type:'array',cellDates:true});
+      const sheet=pendingWorkbook.Sheets[sheetName];
+      const matrix=sheetMatrix(sheet);
+      const roster=detectPersonnel(sheet,matrix);
+      const duty=detectDutySchedule(sheet,matrix);
+      const statuses=detectDailyStatuses(matrix);
+      const baseAssignments=detectFireBoardBase(matrix,roster);
 
-      let best = null;
+      if(!roster.length || !duty.schedule.length){
+        const details=[];
+        if(!roster.length) details.push('找不到人員名冊');
+        if(!duty.schedule.length) details.push(duty.error || '找不到勤務時段');
 
-      workbook.SheetNames.forEach(sheetName=>{
-        const sheet = workbook.Sheets[sheetName];
-        const matrix = sheetMatrix(sheet);
-        const roster = detectPersonnel(matrix);
-        const duty = detectDutySchedule(sheet,matrix);
-        const statuses = detectDailyStatuses(matrix);
-        const baseAssignments = detectFireBoardBase(matrix,roster);
-
-        const score = roster.length * 3 + duty.schedule.length * 5 + statuses.size;
-
-        if(!best || score > best.score){
-          best = {
-            score,
-            sheetName,
-            roster,
-            schedule:duty.schedule,
-            statuses,
-            baseAssignments,
-            error:duty.error
-          };
-        }
-      });
-
-      if(!best || !best.roster.length || !best.schedule.length){
         $('#importDetectStatus').html(
-          '<span class="text-danger fw-bold">無法從這份 Excel 辨識人員名冊或勤務時段。</span>'
+          `<span class="text-danger fw-bold">${escapeHtml(sheetName)} 無法匯入：${escapeHtml(details.join('；'))}</span>`
         );
         $('#previewWrap').html(
-          '<div class="p-3 small">目前解析器是依你提供的勤務表圖片版型設計；取得實際 Excel 後，如果儲存格結構不同，再調整一次欄位偵測即可。</div>'
+          '<div class="p-3 small">請確認選到的是當日正式勤務工作表。A、B、C 等勤務代號不會轉換成人員番號。</div>'
         );
-        importModal.show();
-        this.value = '';
         return;
       }
 
-      best.missing = collectMissingNumbers(best.roster,best.schedule);
-      pendingImport = best;
+      const result={
+        sheetName,
+        roster,
+        schedule:duty.schedule,
+        statuses,
+        baseAssignments,
+        error:duty.error
+      };
+      result.missing=collectMissingNumbers(result.roster,result.schedule);
+      pendingImport=result;
 
-      previewImport(best);
+      previewImport(result);
       $('#confirmImport').prop('disabled',false);
-      importModal.show();
-
     }catch(err){
       console.error(err);
+      $('#importDetectStatus').html(`<span class="text-danger fw-bold">${escapeHtml(sheetName)} 解析失敗</span>`);
+      $('#previewWrap').empty();
+    }
+  }
+
+  $('#importSheetSelect').on('change',parseSelectedImportSheet);
+
+  $('#excelFile').on('change',async function(){
+    const file=this.files && this.files[0];
+    if(!file) return;
+
+    pendingImport=null;
+    pendingWorkbook=null;
+    $('#confirmImport').prop('disabled',true);
+    $('#previewWrap').empty();
+    $('#sheetSelectWrap').addClass('d-none');
+    $('#importSheetSelect').empty();
+    $('#importDetectStatus').text('正在讀取 Excel…');
+
+    try{
+      const buffer=await file.arrayBuffer();
+      pendingWorkbook=XLSX.read(buffer,{type:'array',cellDates:true});
+
+      const names=(pendingWorkbook.SheetNames || []).filter(name=>String(name || '').trim());
+      if(!names.length){
+        $('#importDetectStatus').html('<span class="text-danger fw-bold">這份 Excel 沒有可選擇的工作表。</span>');
+        importModal.show();
+        this.value='';
+        return;
+      }
+
+      const $select=$('#importSheetSelect');
+      $select.empty();
+      $select.append(new Option('請選擇工作表',''));
+      names.forEach(name=>$select.append(new Option(name,name)));
+
+      $('#sheetSelectWrap').removeClass('d-none');
+      $('#importDetectStatus').html(
+        `已讀取 <b>${escapeHtml(file.name)}</b>，共 ${names.length} 張工作表。請選擇本次要匯入的工作表。`
+      );
+      importModal.show();
+    }catch(err){
+      console.error(err);
+      pendingWorkbook=null;
       $('#importDetectStatus').html('<span class="text-danger fw-bold">Excel 讀取失敗</span>');
       $('#previewWrap').empty();
       importModal.show();
     }
 
-    this.value = '';
+    this.value='';
   });
 
   /* =========================================================
@@ -3633,6 +3695,9 @@ $(function(){
     queueAutoSave('import',50);
 
     pendingImport = null;
+    pendingWorkbook = null;
+    $('#importSheetSelect').empty();
+    $('#sheetSelectWrap').addClass('d-none');
   });
 
   /* =========================================================

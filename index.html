@@ -6,7 +6,7 @@
 <meta content="width=device-width, initial-scale=1" name="viewport"/>
 <title>火警出動人員車輛分配表</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"/>
-<link href="css/app.css?v=68" rel="stylesheet"/>
+<link href="css/app.css?v=70" rel="stylesheet"/>
 </head>
 <body>
 <!-- =========================================================
@@ -259,7 +259,15 @@
 <h5 class="modal-title fw-bold">匯入每日勤務分配表</h5>
 <button class="btn-close btn-close-white" data-bs-dismiss="modal" type="button"></button>
 </div>
-<div class="modal-body"><div class="alert alert-light border small">選擇每日勤務分配表後，系統會自動找人員番號、姓名、身分，以及「備勤91／備勤救災」時段，不需要手動選欄位。</div><div class="mb-3" id="importDetectStatus">尚未選擇檔案</div><div class="table-responsive border rounded" id="previewWrap"></div></div>
+<div class="modal-body">
+<div class="alert alert-light border small">選擇每日勤務分配表後，請先選擇要匯入的工作表。系統會依該工作表解析人員番號、姓名、職務，以及 08:00 至隔日 08:00 的勤務時段。A、B、C 等勤務代號不會轉換成人員。</div>
+<div class="mb-3 d-none" id="sheetSelectWrap">
+<label class="form-label fw-bold" for="importSheetSelect">選擇工作表</label>
+<select class="form-select" id="importSheetSelect"></select>
+</div>
+<div class="mb-3" id="importDetectStatus">尚未選擇檔案</div>
+<div class="table-responsive border rounded" id="previewWrap"></div>
+</div>
 <div class="modal-footer">
 <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
 <button class="btn btn-success fw-bold" disabled="disabled" id="confirmImport">確認匯入</button>
@@ -294,7 +302,7 @@
 <div class="master-card-head">
 <div><strong>人員</strong><small>每日勤務表人員與前端自行增加的人員都在這裡管理</small></div>
 <div class="d-flex gap-2 flex-wrap justify-content-end">
-<button class="btn btn-outline-success btn-sm fw-bold" id="batchVolunteerBtn" type="button">批次新增義消</button>
+<button class="btn btn-outline-success btn-sm fw-bold" id="batchVolunteerBtn" type="button">批次新增人員</button>
 <button class="btn btn-success btn-sm fw-bold" id="addOtherPersonBtn" type="button">新增人員</button>
 </div>
 </div>
@@ -342,7 +350,7 @@
 </div>
 
 <!-- =========================================================
-     義消批次新增
+     批次新增人員
      每行一位姓名，也可貼「番號,姓名」或 Excel 兩欄。
 ========================================================= -->
 <div class="modal fade" id="volunteerBatchModal" tabindex="-1" data-bs-backdrop="static">
@@ -350,15 +358,17 @@
 <div class="modal-content">
 <div class="modal-header">
 <div>
-<h5 class="modal-title fw-bold mb-0">批次新增義消</h5>
-<div class="small text-secondary">新增的人員職務一律為「義消」</div>
+<h5 class="modal-title fw-bold mb-0">批次新增人員</h5>
+<div class="small text-secondary">可指定預設職務，也可在每一列個別指定職務</div>
 </div>
 <button class="btn-close" data-bs-dismiss="modal" type="button"></button>
 </div>
 <div class="modal-body">
-<label class="form-label fw-bold" for="volunteerBatchText">貼上義消名單</label>
-<textarea class="form-control font-monospace" id="volunteerBatchText" rows="12" placeholder="王小明&#10;陳大華&#10;&#10;或：&#10;101,王小明&#10;102,陳大華"></textarea>
-<div class="form-text">一行一人。支援「姓名」、「番號,姓名」，也可直接從 Excel 複製番號＋姓名兩欄貼上。重複姓名會自動略過。</div>
+<label class="form-label fw-bold" for="volunteerBatchDefaultRole">預設職務</label>
+<select class="form-select mb-3" id="volunteerBatchDefaultRole"></select>
+<label class="form-label fw-bold" for="volunteerBatchText">貼上人員名單</label>
+<textarea class="form-control font-monospace" id="volunteerBatchText" rows="12" placeholder="王小明&#10;101,陳大華&#10;102,林小明,小隊長&#10;&#10;也可直接從 Excel 複製：番號｜姓名｜職務"></textarea>
+<div class="form-text">一行一人。支援「姓名」、「番號,姓名」、「番號,姓名,職務」，也可直接從 Excel 複製 2～3 欄貼上。未填職務時使用上方預設職務；重複姓名或番號會自動略過。</div>
 <div class="alert alert-warning py-2 mt-3 mb-0 d-none" id="volunteerBatchResult"></div>
 </div>
 <div class="modal-footer">
@@ -409,6 +419,6 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="js/app.js?v=68"></script>
+<script src="js/app.js?v=70"></script>
 </body>
 </html>

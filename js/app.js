@@ -1361,7 +1361,7 @@ $(function(){
   // v52 在隊備勤 → 火警出動隨機編組
   // ---------------------------------------------------------
   // 只有目前時段「在隊備勤」的人才會自動補入火警主表。
-  // 排除：91 / 92、休息、請假等不可排狀態、義消，以及目前值班人員。
+  // 排除：91 / 92、休息、請假等不可排狀態、小隊長、役男、義消，以及目前值班人員。
   // 配置優先順序：先依車序填駕駛，再依車序填瞄子手，再依車序填副瞄子手。
   // 駕駛車序：11車 → 31車 → 61車 → 中隊指揮車；瞄子手／副瞄子手只有 11、31、61 車。
   // 帶隊官完全由 Excel 基礎編制帶入，不參與隨機；中隊長僅能由人員池手動拉入。
@@ -1430,9 +1430,48 @@ $(function(){
       if(!no || !atStation.has(no)) return false;
       if(rescue.has(no) || resting.has(no) || watch.has(no)) return false;
       if(hasBlockingDutyStatus(no)) return false;
-      if(normalizeRole(person?.role)==='義消') return false;
+
+      // v73：火警隨機編組只從可隨機配置的一般人員產生。
+      // 小隊長由 Excel 基礎編制擔任帶隊官，不進入駕駛／瞄子手／副瞄子手隨機池；
+      // 役男與義消也不納入自動隨機配置。
+      const role=normalizeRole(person?.role);
+      if(['小隊長','役男','義消'].includes(role)) return false;
       return true;
     });
+  }
+
+  function ensureFixedFireDutyCard(){
+    const $target=$('.drop-target[data-slot-id="second-3-photo"]').first();
+    if(!$target.length || targetKind($target[0])!=='person') return;
+
+    const $current=$target.children('[data-drag-type]').first();
+    if($current.length){
+      const currentDuty=String($current.attr('data-duty-role') || '').trim();
+      if(currentDuty==='火警值班') return;
+
+      // 人工放入的內容仍保留；只有空格或系統自動內容才由勤務表固定配置補上。
+      if(!$current.attr('data-auto-source')) return;
+      $current.remove();
+    }
+
+    // 全看板只允許一張火警值班卡；若舊狀態放在別格，移回固定位置。
+    const $existing=$('.drop-target [data-person-source="duty"][data-duty-role="火警值班"]').first();
+    if($existing.length){
+      $existing.detach().attr('data-auto-source','base');
+      $target.empty().append($existing);
+      return;
+    }
+
+    $target.append(
+      $('<div class="person-chip duty-assignment-chip"></div>')
+        .attr('data-drag-type','person')
+        .attr('data-value','火警值班')
+        .attr('data-no','')
+        .attr('data-person-source','duty')
+        .attr('data-duty-role','火警值班')
+        .attr('data-auto-source','base')
+        .text('火警值班')
+    );
   }
 
   function applyAtStationFireRandom(period){
@@ -1486,6 +1525,12 @@ $(function(){
     // Excel 右上角仍提供當日基礎車輛、帶隊官、火警值班等設定；
     // 但人員只有目前時段「在隊備勤」才允許自動帶入。
     applyBaseAssignments({onlyEmpty:true,ignoreDuty:false});
+
+    // v73：這兩格是正式勤務表固定配置，不需要使用者再從池中手動拖入。
+    // 中指車固定在第二梯次最後一列的車輛格；
+    // 火警值班固定在第二梯次最後一列的攝影照相格。
+    ensureMainFireVehicle('second-3-vehicle','中隊指揮車');
+    ensureFixedFireDutyCard();
 
     ensureDutyVehicle('91車');
     ensureDutyVehicle('92車');
@@ -3327,22 +3372,61 @@ $(function(){
         }
       }
 
-      // 休息欄位獨立處理，不讓其他勤務欄位的更新誤把第二個休息時段清掉。
+      /*
+         v73：休息時間大量使用 Excel 合併儲存格。
+         這裡分成兩種來源：
+
+         A. 真正的 Excel merge
+            若目前這一列落在某個休息合併範圍內，就直接讀該 merge 左上角的番號。
+            merge 跨 2 列就休 2 小時，跨 3 列就休 3 小時，不再自行猜固定 2 小時。
+            橫向合併也同樣以 merge 左上角值為準。
+
+         B. 沒有 merge 的一般儲存格
+            才保留舊版「最多延續下一個 1 小時」的相容規則。
+
+         這樣可同時支援正式勤務表的合併休息格，以及舊勤務表只填第一小時的格式。
+      */
       const explicitRest=[];
+      const mergedRest=[];
+      const visitedRestAnchors=new Set();
+
       for(let c=spanRest.startCol;c<=spanRest.endCol;c++){
-        // 只看這一列實際填寫的儲存格，不把 mergedCellValue 的延伸值再當成新的起點，
-        // 否則兩列合併的休息會被錯誤延長成第三個時段。
-        explicitRest.push(...parseDutyNumberList(row[c] ?? ''));
+        const merge=getMergeSpan(sheet,r,c);
+        const anchorKey=`${merge.startRow}:${merge.startCol}`;
+
+        // 目前儲存格確實屬於一個多格 merge，且該 merge 與休息欄位相交。
+        const isRealMerge=
+          merge.endRow>merge.startRow || merge.endCol>merge.startCol;
+
+        if(isRealMerge && !visitedRestAnchors.has(anchorKey)){
+          visitedRestAnchors.add(anchorKey);
+          const anchorValue=matrix?.[merge.startRow]?.[merge.startCol] ?? '';
+          mergedRest.push(...parseDutyNumberList(anchorValue));
+        }
+
+        // 只有 merge 左上角或一般未合併格才算「本列明確填寫」，
+        // 避免 merge 延伸列被重複當成新的休息起點。
+        if(!isRealMerge || (merge.startRow===r && merge.startCol===c)){
+          explicitRest.push(...parseDutyNumberList(row[c] ?? ''));
+        }
       }
+
+      const uniqueMergedRest=[...new Set(mergedRest.map(no=>String(no)))];
       const uniqueExplicitRest=[...new Set(explicitRest.map(no=>String(no)))];
 
       let effectiveRest=[];
-      if(uniqueExplicitRest.length){
+
+      if(uniqueMergedRest.length){
+        // 真正 merge 的長度就是休息長度；完全依 Excel，不再額外 carry。
+        effectiveRest=[...uniqueMergedRest];
+        restCarryNumbers=[];
+        restCarryRemaining=0;
+      }else if(uniqueExplicitRest.length){
+        // 非 merge 的舊格式才向後相容最多 1 個時段。
         effectiveRest=[...uniqueExplicitRest];
         restCarryNumbers=[...uniqueExplicitRest];
         restCarryRemaining=1;
       }else if(restCarryRemaining>0 && restCarryNumbers.length){
-        // 下一時段若已明確排到其他勤務，該番號就不再延續休息。
         const explicitOtherDuty=new Set();
         for(let c=dutyStartCol;c<=dutyEndCol;c++){
           if(c>=spanRest.startCol && c<=spanRest.endCol) continue;

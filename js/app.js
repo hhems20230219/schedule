@@ -1585,13 +1585,21 @@ $(function(){
     const $pool = $('#personPool').empty();
 
     /*
-       v66 人員池唯一規則：
-       1. Excel 人員：目前時段有勤務才屬於「目前應存在的人」。
-          沒有 detailed duty 時，退回「今天有勤務」。
-       2. 前端人員（中隊長、義消等）：設定後就是可用人員。
-       3. 輪休／請休／補休／公假／連續補休／休假役男等阻擋狀態不進池。
-       4. 只要人已經在火警表、91/92、休息、因公外出任一正式位置，就不能再出現在池裡。
-       5. 上述所有「是否已配置」只使用 placedPersonIdentitySet()，不再混用姓名/番號多套判斷。
+       v67 人員池核心規則：
+       ---------------------------------------------------------
+       1. 先決定「今天有上班的人」：只要番號在今天任一勤務時段出現過，
+          就視為今天的上班人員。不能因為某一個時段沒有再次寫到該番號，
+          就把這個人從系統中移除。
+       2. 今天有上班的人，初始概念上全部都在人員池。
+       3. 再依目前勤務時段，把 91、92、休息、火警值班、火警自動編組等
+          實際配置到正式位置；placedPersonIdentitySet() 會把這些已配置人員
+          從人員池排除。
+       4. 因此：今天有上班，但目前沒有被配置到任何正式位置的人，
+          必須留在人員池，絕對不能憑空消失。
+       5. 輪休／請休／補休／公假／連續補休／休假役男等阻擋狀態，
+          不屬於今天可用的上班人員，不進人員池。
+       6. 中隊長、義消等前端手動人員仍維持設定後可用；若已被拖到正式位置，
+          同樣由 placedPersonIdentitySet() 排除，確保全看板唯一。
     */
     const merged = [];
     const seen = new Set();
@@ -1599,11 +1607,11 @@ $(function(){
     todayRoster.forEach(item=>{
       if(!item || !item.name || !isActiveShift(item)) return;
       const noText=String(item.no ?? '').trim();
-      const isExpectedNow=!hasDetailedDutyData
-        ? (!!noText && scheduledToday.has(noText))
-        : (!!noText && currentDuty.has(noText));
 
-      if(!isExpectedNow || hasBlockingDutyStatus(noText)) return;
+      // 有詳細勤務資料時，人員是否「存在」看的是今天整天是否有上班，
+      // 不是只看目前時段。這可避免 11:00-12:00 之類時段資料較少時人員消失。
+      const isWorkingToday = !!noText && scheduledToday.has(noText);
+      if(!isWorkingToday || hasBlockingDutyStatus(noText)) return;
 
       const uniqueKey=noText ? `no:${noText}` : `name:${normalizedPersonName(item.name)}`;
       if(seen.has(uniqueKey)) return;

@@ -3450,7 +3450,12 @@ $(function(){
         <tbody>
     `;
 
-    result.schedule.slice(0,12).forEach(period=>{
+    /*
+       v68：勤務日為當日 08:00 至隔日 08:00，共 24 個一小時時段。
+       匯入預覽不可只顯示前 12 段，否則畫面會固定停在 19:00–20:00，
+       讓人誤以為 20:00 之後的 Excel 資料沒有被解析。
+    */
+    result.schedule.forEach(period=>{
       const names91 = (period['備勤91'] || []).map(no=>{
         const p = result.roster.find(x=>Number(x.no) === Number(no));
         return p ? `${no} ${p.name}` : `${no}`;

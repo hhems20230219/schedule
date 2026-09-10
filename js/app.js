@@ -2754,7 +2754,9 @@ $(function(){
     return String(value ?? '')
       .replace(/\r?\n/g,'')
       .replace(/\s+/g,'')
-      .replace(/[（）()【】\[\]、，,。．.]/g,'')
+      // 正式勤務表會混用 (91)、（91）、〈91〉、＜91＞ 等寫法；
+      // 表頭比對時全部視為相同，不可因此抓錯欄位。
+      .replace(/[（）()【】\[\]〈〉＜＞<>、，,。．.]/g,'')
       .trim();
   }
 
@@ -2834,6 +2836,35 @@ $(function(){
     });
 
     return result;
+  }
+
+  /*
+     v71：勤務欄位只能把「純番號清單」當成人員。
+     例如 35、"2\n3"、"22 23" 可以解析；
+     「第三人支援(備勤TP人員或92車第1人)」不可把 92 誤當番號。
+     狀態欄仍沿用 parseNumberList，因公假可能是 29(TEC) 這種格式。
+  */
+  function parseDutyNumberList(value){
+    const text=String(value ?? '').trim();
+    if(!text) return [];
+
+    // 勤務儲存格只允許數字及常見分隔符號。
+    // 一旦含中文、英文字母或其他說明文字，整格視為勤務說明而不是番號。
+    if(/[A-Za-z\u3400-\u9FFF]/.test(text)) return [];
+
+    const normalized=text
+      .replace(/[、，,。．.；;／/｜|＋+＆&]/g,' ')
+      .replace(/[\r\n\t]+/g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+
+    if(!normalized || !/^\d{1,3}(?:\s+\d{1,3})*$/.test(normalized)) return [];
+
+    return [...new Set(
+      normalized.split(/\s+/)
+        .map(Number)
+        .filter(no=>no>0 && no<=999)
+    )];
   }
 
   function parseTimeRange(value){
@@ -3198,10 +3229,30 @@ $(function(){
     let restCarryNumbers = [];
     let restCarryRemaining = 0;
 
+    let dutyStarted=false;
+
     for(let r=0;r<matrix.length;r++){
       const row = matrix[r] || [];
       const period = parseTimeRange(row[timeCol]);
       if(!period) continue;
+
+      /*
+         正式勤務表在真正勤務明細前，還有一列「8-9 勤前教育」。
+         它只有時間文字，勤務區沒有任何純番號，不能算成第一個勤務時段。
+         第一個在勤務區實際出現番號的時間列才是 08:00–09:00 的真正起點；
+         起點之後的空白 9-10、11-12... 才依既有規則承接上一時段。
+      */
+      if(!dutyStarted){
+        let hasActualDutyNumber=false;
+        for(let c=dutyStartCol;c<=dutyEndCol;c++){
+          if(parseDutyNumberList(row[c] ?? '').length){
+            hasActualDutyNumber=true;
+            break;
+          }
+        }
+        if(!hasActualDutyNumber) continue;
+        dutyStarted=true;
+      }
 
       const parsedByCol = new Map();
       let rowHasDutyNumbers = false;
@@ -3216,7 +3267,7 @@ $(function(){
            真正整列空白時，currentByCol 會完整沿用上一時段；
            本列只要真的填了任一勤務番號，才視為新的勤務狀態。
         */
-        const nums = parseNumberList(row[c] ?? '');
+        const nums = parseDutyNumberList(row[c] ?? '');
         parsedByCol.set(c,nums);
         if(nums.length) rowHasDutyNumbers = true;
       }
@@ -3237,7 +3288,7 @@ $(function(){
       for(let c=spanRest.startCol;c<=spanRest.endCol;c++){
         // 只看這一列實際填寫的儲存格，不把 mergedCellValue 的延伸值再當成新的起點，
         // 否則兩列合併的休息會被錯誤延長成第三個時段。
-        explicitRest.push(...parseNumberList(row[c] ?? ''));
+        explicitRest.push(...parseDutyNumberList(row[c] ?? ''));
       }
       const uniqueExplicitRest=[...new Set(explicitRest.map(no=>String(no)))];
 
@@ -3283,6 +3334,9 @@ $(function(){
         '休息時間':numsRest,
         allDutyNumbers
       });
+
+      // 一個勤務日固定為當日 08:00 至隔日 08:00，共 24 段。
+      if(schedule.length>=24) break;
     }
 
     return {

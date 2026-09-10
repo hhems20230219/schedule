@@ -236,7 +236,7 @@ $(function(){
     }).get().filter(Boolean);
 
     return {
-      version:15,
+      version:16,
       date:localDateText(),
       todayRoster:todayRoster.map(item=>({
         no:item.no ?? '',
@@ -251,6 +251,7 @@ $(function(){
         '備勤91':[...(period['備勤91'] || [])],
         '備勤救災':[...(period['備勤救災'] || [])],
         '值班':[...(period['值班'] || [])],
+        '值班指導員':[...(period['值班指導員'] || [])],
         '在隊備勤':[...(period['在隊備勤'] || [])],
         '休息時間':[...(period['休息時間'] || [])],
         allDutyNumbers:[...(period.allDutyNumbers || [])]
@@ -363,6 +364,7 @@ $(function(){
           '備勤91':[...(period['備勤91'] || [])],
           '備勤救災':[...(period['備勤救災'] || [])],
           '值班':[...(period['值班'] || [])],
+          '值班指導員':[...(period['值班指導員'] || [])],
           '在隊備勤':[...(period['在隊備勤'] || [])],
           '休息時間':[...(period['休息時間'] || [])],
           allDutyNumbers:[...(period.allDutyNumbers || [])]
@@ -1640,7 +1642,21 @@ $(function(){
   function currentAtStationNumberSet(){
     if(!hasDetailedDutyData) return new Set();
     const period = getActiveDutyPeriod();
-    return new Set((period?.['在隊備勤'] || []).map(no=>String(no)));
+
+    /*
+       v76：
+       「值班指導員」沒有獨立的看板配置格，因此人仍是在隊可用狀態。
+       人員池顯示時，將：
+         在隊備勤 + 值班指導員
+       都標示為「在隊備勤」。
+
+       注意：火警隨機分配仍只使用 period['在隊備勤']，
+       不會因這裡的顯示規則把值班指導員拉進火警隨機編組。
+    */
+    return new Set([
+      ...(period?.['在隊備勤'] || []),
+      ...(period?.['值班指導員'] || [])
+    ].map(no=>String(no)));
   }
 
   function rebuildPersonPool(){
@@ -3286,6 +3302,7 @@ $(function(){
     const key91 = settings.duty91Keywords || ['備勤91','備勤(91)','備勤（91）'];
     const key92 = settings.duty92Keywords || ['備勤救災','備勤(救災)','備勤（救災）'];
     const keyWatch = settings.dutyWatchKeywords || ['值班'];
+    const keyWatchInstructor = settings.dutyWatchInstructorKeywords || ['值班指導員'];
     const keyAtStation = settings.atStationKeywords || ['在隊備勤'];
     const keyRest = settings.restKeywords || ['休息時間'];
     const keyDutyEnd = settings.dutyRegionEndKeywords || ['服勤編組'];
@@ -3296,6 +3313,7 @@ $(function(){
     const header92 = findExactKeywordCell(matrix,key92);
     // 「值班」與「值班指導員」是兩個不同欄位。
     const headerWatch = findExactKeywordCell(matrix,keyWatch);
+    const headerWatchInstructor = findExactKeywordCell(matrix,keyWatchInstructor);
     const headerAtStation = findExactKeywordCell(matrix,keyAtStation);
     const headerRest = findExactKeywordCell(matrix,keyRest);
     const headerDutyEnd = findExactKeywordCell(matrix,keyDutyEnd);
@@ -3307,6 +3325,7 @@ $(function(){
         header91,
         header92,
         headerWatch,
+        headerWatchInstructor,
         headerAtStation,
         headerRest,
         timeCol,
@@ -3318,6 +3337,7 @@ $(function(){
     const span91 = getLogicalHeaderSpan(sheet,matrix,header91);
     const span92 = getLogicalHeaderSpan(sheet,matrix,header92);
     const spanWatch = headerWatch ? getLogicalHeaderSpan(sheet,matrix,headerWatch) : null;
+    const spanWatchInstructor = headerWatchInstructor ? getLogicalHeaderSpan(sheet,matrix,headerWatchInstructor) : null;
     const spanAtStation = getLogicalHeaderSpan(sheet,matrix,headerAtStation);
     const spanRest = getLogicalHeaderSpan(sheet,matrix,headerRest);
 
@@ -3329,6 +3349,7 @@ $(function(){
       span91.endCol,
       span92.endCol,
       ...(spanWatch ? [spanWatch.endCol] : []),
+      ...(spanWatchInstructor ? [spanWatchInstructor.endCol] : []),
       spanAtStation.endCol,
       spanRest.endCol
     );
@@ -3476,8 +3497,15 @@ $(function(){
       const nums91 = numbersFromColumnState(currentByCol,span91.startCol,span91.endCol);
       const nums92 = numbersFromColumnState(currentByCol,span92.startCol,span92.endCol);
       const numsWatch = spanWatch ? numbersFromColumnState(currentByCol,spanWatch.startCol,spanWatch.endCol) : [];
+      const numsWatchInstructor = spanWatchInstructor
+        ? numbersFromColumnState(currentByCol,spanWatchInstructor.startCol,spanWatchInstructor.endCol)
+        : [];
       const numsAtStation = numbersFromColumnState(currentByCol,spanAtStation.startCol,spanAtStation.endCol);
       const numsRest = numbersFromColumnState(currentByCol,spanRest.startCol,spanRest.endCol);
+
+      // allDutyNumbers 只用來判斷「今天有上班的人」。
+      // 值班指導員可以存在於這個母集合，但「休息」只能來自 spanRest，
+      // 絕對不能因為值班指導員沒有看板位置就被塞進休息區。
       const allDutyNumbers = numbersFromColumnState(currentByCol,dutyStartCol,dutyEndCol);
 
       schedule.push({
@@ -3486,6 +3514,7 @@ $(function(){
         '備勤91':nums91,
         '備勤救災':nums92,
         '值班':numsWatch,
+        '值班指導員':numsWatchInstructor,
         '在隊備勤':numsAtStation,
         '休息時間':numsRest,
         allDutyNumbers
@@ -3500,6 +3529,7 @@ $(function(){
       header91,
       header92,
       headerWatch,
+      headerWatchInstructor,
       headerAtStation,
       headerRest,
       headerDutyEnd,
@@ -3877,6 +3907,7 @@ $(function(){
       '備勤91':[...(item['備勤91'] || [])],
       '備勤救災':[...(item['備勤救災'] || [])],
       '值班':[...(item['值班'] || [])],
+      '值班指導員':[...(item['值班指導員'] || [])],
       '在隊備勤':[...(item['在隊備勤'] || [])],
       '休息時間':[...(item['休息時間'] || [])],
       allDutyNumbers:[...(item.allDutyNumbers || [])]

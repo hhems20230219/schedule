@@ -236,7 +236,7 @@ $(function(){
     }).get().filter(Boolean);
 
     return {
-      version:13,
+      version:14,
       date:localDateText(),
       todayRoster:todayRoster.map(item=>({
         no:item.no ?? '',
@@ -1402,8 +1402,11 @@ $(function(){
       if(!$current.attr('data-auto-source')) return;
       $current.remove();
     }
-    // 同一車輛只能存在一份；若別處已有人工配置則不再複製。
-    const $duplicate=$(`[data-drag-type="vehicle"][data-value="${vehicleName}"]`).filter(function(){
+    // v74：唯一性只能檢查「正式看板」。
+    // 車輛池只是未配置來源，不代表車輛已經放到看板。
+    // v73 掃描整個 DOM，會因車輛池本來就有「中隊指揮車」而誤判重複，
+    // 導致 second-3-vehicle 永遠補不進去。
+    const $duplicate=$(`.drop-target [data-drag-type="vehicle"][data-value="${vehicleName}"]`).filter(function(){
       return !$.contains($target[0],this);
     }).first();
     if($duplicate.length) return;
@@ -2455,6 +2458,12 @@ $(function(){
         $target.find(`[data-drag-type="${kind}"]`).not(evt.item).remove();
 
         let $replacement;
+        // v74：這兩個值必須宣告在 onAdd 共用 scope。
+        // v73 把它們宣告在 else block，下面的 setTimeout 會 ReferenceError，
+        // 造成「人員拖曳看得到，但 queueAutoSave 根本沒執行」。
+        let dutyRole = '';
+        let personSource = '';
+
         if(kind === 'vehicle'){
           $replacement = $('<div class="vehicle-chip"></div>')
             .attr('data-drag-type','vehicle')
@@ -2463,8 +2472,8 @@ $(function(){
         }else{
           const role = $item.attr('data-role') || findRosterRole(value);
           const no = $item.attr('data-no') ?? '';
-          const dutyRole = String($item.attr('data-duty-role') || '').trim();
-          const personSource = String($item.attr('data-person-source') || (dutyRole ? 'duty' : 'daily')).trim();
+          dutyRole = String($item.attr('data-duty-role') || '').trim();
+          personSource = String($item.attr('data-person-source') || (dutyRole ? 'duty' : 'daily')).trim();
           if(personSource === 'daily') ensureRosterPerson(value,role,no);
 
           $replacement = $('<div class="person-chip"></div>')

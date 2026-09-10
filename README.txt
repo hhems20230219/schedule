@@ -487,3 +487,17 @@ v73：
 4. 火警隨機編組排除：小隊長、役男、義消。
 5. 中隊指揮車固定自動放在第二梯次最後一列車輛格 second-3-vehicle。
 6. 火警值班固定自動放在第二梯次最後一列攝影照相格 second-3-photo，並自動連動右側目前值班人員。
+
+v74：
+1. 修正「中隊指揮車沒有自動放入」：
+   v73 的 ensureMainFireVehicle() 把車輛池也算成已配置位置，
+   因車輛池本來就有中隊指揮車而直接 return。
+   v74 唯一性只檢查正式 .drop-target，看板最後一格會正常自動補入中隊指揮車。
+
+2. 修正「義消／手動人員拖上看板，重新整理後消失」：
+   v73 的 drop-target onAdd 中 personSource / dutyRole 是 block scope，
+   但後面的 setTimeout 在 block 外引用，會發生 ReferenceError，
+   導致 queueAutoSave('drag') 沒有執行。
+   v74 改為共用 scope，因此人員（包含義消）拖曳完成後會真正自動同步保存。
+
+3. boardState version 更新為 14。

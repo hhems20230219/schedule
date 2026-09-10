@@ -236,7 +236,7 @@ $(function(){
     }).get().filter(Boolean);
 
     return {
-      version:14,
+      version:15,
       date:localDateText(),
       todayRoster:todayRoster.map(item=>({
         no:item.no ?? '',
@@ -317,6 +317,7 @@ $(function(){
       .attr('data-person-source',restoredSource)
       .append($('<span></span>').text(item.value));
     if(item.dutyRole) $chip.attr('data-duty-role',item.dutyRole);
+    if(item.autoSource) $chip.attr('data-auto-source',item.autoSource);
 
     applyPersonRole($chip,item.value,item.role);
     return $chip;
@@ -1253,7 +1254,10 @@ $(function(){
     const $target = $(`.panel-body-drop[data-duty-source="${source}"]`);
 
     if(!$target.length) return;
-    $target.empty();
+
+    // v75：只移除上一輪由 Excel 自動帶入的狀態卡。
+    // 人工拖進休息區的人員/義消不能因為按「帶入人員」就消失。
+    $target.children('[data-auto-source="duty-period"]').remove();
 
     list.forEach(no=>{
       const person = findPersonByNo(no);
@@ -1262,10 +1266,24 @@ $(function(){
         return;
       }
 
-      // 勤務表明確標示「休息時間」時，以勤務表為最高優先：
-      // 基礎配置、91/92 或人工配置只要是同一人，都先移除。
+      // Excel 本時段明確指定的人仍具有勤務優先權：
+      // 同一人若在其他看板位置，先移除，避免全站重複。
       removePersonFromBoardByNo(no,$target[0]);
-      $target.append(createPersonChip(person,'status-chip'));
+
+      // 若該人已由人工放在同一個休息區，不再新增第二張。
+      const alreadyHere=$target.children('[data-drag-type="person"]').filter(function(){
+        const $item=$(this);
+        const itemNo=String($item.attr('data-no') || '').trim();
+        const itemName=String($item.attr('data-value') || '').trim();
+        return (itemNo && itemNo===String(person.no ?? '').trim()) ||
+               (!itemNo && itemName===String(person.name || '').trim());
+      }).length>0;
+      if(alreadyHere) return;
+
+      $target.append(
+        createPersonChip(person,'status-chip')
+          .attr('data-auto-source','duty-period')
+      );
     });
   }
 
@@ -1519,9 +1537,10 @@ $(function(){
   function applyDutyPeriod(period){
     if(!period) return;
 
-    // 清掉上一時段的『自動休息』與『自動基礎配置』，再依目前/測試時段重算。
-    // 人工拖曳的配置不會被 clearAutoBaseAssignments() 清除。
-    $('#restingBody').empty();
+    // v75：只清除「系統自動」配置，人工拖入的人員（包含義消）必須保留。
+    // v74 直接 $('#restingBody').empty()，所以按「帶入人員」時，
+    // 手動放在休息區的義消/人員會被一起刪掉。
+    $('#restingBody [data-auto-source="duty-period"]').remove();
     clearAutoBaseAssignments();
     clearAutoFireRandomAssignments();
 

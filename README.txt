@@ -501,3 +501,12 @@ v74：
    v74 改為共用 scope，因此人員（包含義消）拖曳完成後會真正自動同步保存。
 
 3. boardState version 更新為 14。
+
+v75：
+1. 依 v74 修正「義消拉入後，再按帶入人員會消失」。
+2. 根因：applyDutyPeriod() 直接清空 restingBody，applyDutyToStatus() 又再次清空休息區，人工卡與 Excel 自動卡沒有區分。
+3. Excel 自動休息卡新增 data-auto-source="duty-period"。
+4. 按「帶入人員」或重新套用勤務時，只移除上一輪自動休息卡，不移除人工拖入的人員/義消。
+5. Excel 本時段明確指定休息的人員仍具有優先權，並維持全看板不重複。
+6. createRestoredStatusItem() 補上 autoSource 還原，避免重新整理後把自動休息誤認成人工休息。
+7. boardState version 更新為 15。

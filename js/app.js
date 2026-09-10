@@ -1550,8 +1550,19 @@ $(function(){
     todayRoster.forEach(item=>{
       if(!item || !item.name || !isActiveShift(item)) return;
       const noText=String(item.no ?? '').trim();
-      const isAttending=!hasDetailedDutyData || (!!noText && scheduledToday.has(noText));
-      if(!isAttending || hasBlockingDutyStatus(noText)) return;
+
+      /*
+         v62：Excel 匯入的人員池只顯示「目前時段在隊備勤、而且尚未被配置」的人。
+         以前用 scheduledToday（今天任何時段有出勤）判斷，會把今天稍早／稍晚勤務的人
+         也全部塞回目前的人員池，看起來就像多出一大堆不該出現的人。
+
+         勤務表外的中隊長／義消仍由 manualPersonnel 提供，不受這個條件限制。
+      */
+      const isAvailableNow=!hasDetailedDutyData
+        ? (!!noText && scheduledToday.has(noText))
+        : (!!noText && atStationNow.has(noText));
+
+      if(!isAvailableNow || hasBlockingDutyStatus(noText)) return;
       if(seen.has(item.name)) return;
       seen.add(item.name);
       merged.push({...item,_source:'daily'});
@@ -2672,6 +2683,31 @@ $(function(){
     $('#excelFile').trigger('click');
   });
 
+  /* =========================================================
+     v63：快速配置 → 帶入人員
+     ---------------------------------------------------------
+     不需要重新匯入 Excel。使用目前已載入的勤務表資料，
+     依當前時段重新套用 91 / 92、休息、火警值班與在隊備勤
+     的火警隨機編組，並立即同步最新看板。
+  ========================================================= */
+  $('#bringInPersonnelBtn').on('click',function(){
+    if(!dutySchedule.length || !todayRoster.length){
+      toast('目前沒有可帶入的人員資料，請先匯入每日勤務表 Excel');
+      return;
+    }
+
+    const period=getActiveDutyPeriod();
+    if(!period){
+      toast('找不到目前時間對應的勤務時段');
+      return;
+    }
+
+    currentDutyKey='';
+    applyDutyPeriod(period);
+    queueAutoSave('bring-in-personnel',80);
+    toast(`已帶入 ${period.start || '--:--'}–${period.end || '--:--'} 人員`);
+  });
+
   function cleanText(value){
     return String(value ?? '')
       .replace(/\r?\n/g,'')
@@ -3101,7 +3137,16 @@ $(function(){
       let rowHasDutyNumbers = false;
 
       for(let c=dutyStartCol;c<=dutyEndCol;c++){
-        const nums = parseNumberList(mergedCellValue(sheet,matrix,r,c));
+        /*
+           v62：判斷「本時段有沒有新勤務資料」只能看這一列真正填寫的值。
+           不可用 mergedCellValue()，因為 Excel 的縱向合併儲存格會把上一列的值
+           延伸到下一列，讓原本應該整列承接的 09-10、11-12 等空白列被誤判成
+           「本列有新資料」，接著把 91／92／值班／在隊備勤的空欄全部清掉。
+
+           真正整列空白時，currentByCol 會完整沿用上一時段；
+           本列只要真的填了任一勤務番號，才視為新的勤務狀態。
+        */
+        const nums = parseNumberList(row[c] ?? '');
         parsedByCol.set(c,nums);
         if(nums.length) rowHasDutyNumbers = true;
       }

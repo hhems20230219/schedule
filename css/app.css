@@ -2451,57 +2451,73 @@ body.is-fullscreen .rescue-table .person-chip{
 }
 
 /* =========================================================
-   v60：手機直式版專用排版
-   僅 <=768px 生效，桌機版完全不改。
+   v61：手機版真正 RWD 重排（不影響桌機）
+   ---------------------------------------------------------
+   設計：
+   - <= 768px 才啟用。
+   - 不縮放桌機 9 欄、不整張橫向捲動。
+   - 直接把既有 table row 改成手機卡片式 grid；仍使用原本 drop-target，
+     因此拖曳、儲存、slotId 與所有既有 JS 邏輯完全沿用。
 ========================================================= */
 @media (max-width:768px){
-  html,body{
+  html,
+  body{
+    width:100% !important;
     height:auto !important;
     min-height:100% !important;
     overflow-x:hidden !important;
     overflow-y:auto !important;
   }
+
   #topbar{
     height:60px !important;
     min-height:60px !important;
+    padding:0 10px !important;
   }
   #topbarTitle{
     font-size:20px !important;
-    letter-spacing:.03em !important;
+    line-height:1 !important;
+    letter-spacing:.02em !important;
+    white-space:nowrap !important;
+  }
+  #clockBlock,
+  .clock-block{
+    display:none !important;
   }
   #fullscreenBtn{
     width:46px !important;
     height:46px !important;
+    min-width:46px !important;
     padding:0 !important;
   }
   #fullscreenText{display:none !important;}
 
   #boardPage,
   body.is-fullscreen #boardPage{
+    width:100% !important;
     height:auto !important;
     min-height:calc(100dvh - 60px) !important;
-    padding:6px !important;
-    overflow-x:auto !important;
-    overflow-y:visible !important;
-    -webkit-overflow-scrolling:touch;
+    padding:7px !important;
+    overflow:visible !important;
   }
 
   #boardShell,
   body.is-fullscreen #boardShell{
-    --mobile-board-width:1080px;
-    --dispatch-head-height:44px;
     display:block !important;
-    width:var(--mobile-board-width) !important;
-    min-width:var(--mobile-board-width) !important;
+    width:100% !important;
+    min-width:0 !important;
     max-width:none !important;
     height:auto !important;
     min-height:0 !important;
-    padding:5px !important;
+    padding:0 !important;
     overflow:visible !important;
+    background:transparent !important;
   }
 
+  /* ---------- 火警區：table 轉卡片 grid ---------- */
   #fireArea,
-  body.is-fullscreen #fireArea{
+  body.is-fullscreen #fireArea,
+  #fireArea > .table-responsive{
     display:block !important;
     width:100% !important;
     height:auto !important;
@@ -2509,100 +2525,334 @@ body.is-fullscreen .rescue-table .person-chip{
     max-height:none !important;
     overflow:visible !important;
   }
-  #fireArea > .table-responsive{
-    width:100% !important;
-    height:auto !important;
-    overflow:visible !important;
-  }
+
   .fire-table,
   body.is-fullscreen .fire-table{
+    display:block !important;
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    margin:0 !important;
+    border:0 !important;
+    table-layout:auto !important;
+    background:transparent !important;
+  }
+  .fire-table colgroup,
+  .fire-table thead{
+    display:none !important;
+  }
+  .fire-table tbody{
+    display:block !important;
+    width:100% !important;
+    height:auto !important;
+  }
+
+  .fire-table tbody tr,
+  body.is-fullscreen .fire-table tbody tr{
+    display:grid !important;
+    grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+    gap:1px !important;
     width:100% !important;
     height:auto !important;
     min-height:0 !important;
     max-height:none !important;
-    table-layout:fixed !important;
+    margin:0 0 6px 0 !important;
+    padding:1px !important;
+    border:2px solid #2f6048 !important;
+    border-radius:10px !important;
+    overflow:hidden !important;
+    background:#cfd8d3 !important;
   }
-  .fire-table thead,
-  .fire-table thead tr,
-  .fire-table thead th,
-  body.is-fullscreen .fire-table thead,
-  body.is-fullscreen .fire-table thead tr,
-  body.is-fullscreen .fire-table thead th{
+
+  /* 每個梯次的第一列先顯示一條完整標題。 */
+  .fire-table td.echelon-cell.section-vertical-title,
+  body.is-fullscreen .fire-table td.echelon-cell.section-vertical-title{
+    grid-column:1 / -1 !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:flex-start !important;
+    width:auto !important;
+    height:36px !important;
+    min-height:36px !important;
+    max-height:36px !important;
+    padding:0 10px !important;
+    border:0 !important;
+    border-bottom:1px solid #d3ddd7 !important;
+    background:#2f6048 !important;
+    color:#fff !important;
+    font-size:17px !important;
+    font-weight:900 !important;
+    line-height:1 !important;
+    letter-spacing:.04em !important;
+    writing-mode:horizontal-tb !important;
+    text-orientation:mixed !important;
+    white-space:nowrap !important;
+  }
+
+  .fire-table tbody td.drop-target,
+  body.is-fullscreen .fire-table tbody td.drop-target{
+    position:relative !important;
+    display:flex !important;
+    align-items:flex-end !important;
+    justify-content:center !important;
+    width:auto !important;
+    height:74px !important;
+    min-height:74px !important;
+    max-height:74px !important;
+    padding:27px 3px 3px !important;
+    border:0 !important;
+    background:#fff !important;
+    overflow:hidden !important;
+  }
+
+  .fire-table tbody td.drop-target::before{
+    content:attr(data-mobile-label);
+    position:absolute;
+    top:0;
+    left:0;
+    right:0;
+    height:25px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 2px;
+    background:#f0f5f2;
+    border-bottom:1px solid #d7e0db;
+    color:#53655b;
+    font-size:11px;
+    font-weight:800;
+    line-height:1;
+    white-space:nowrap;
+    overflow:hidden;
+  }
+
+  /* 手機格內值固定可讀尺寸，不再被桌機 fitBoardChipText 放到忽大忽小。 */
+  .fire-table .drop-target > .person-chip,
+  .fire-table .drop-target > .vehicle-chip,
+  body.is-fullscreen .fire-table .drop-target > .person-chip,
+  body.is-fullscreen .fire-table .drop-target > .vehicle-chip{
+    position:static !important;
+    inset:auto !important;
+    width:100% !important;
     height:44px !important;
     min-height:44px !important;
     max-height:44px !important;
+    margin:0 !important;
+    padding:2px !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
     font-size:16px !important;
-  }
-  .fire-table tbody,
-  body.is-fullscreen .fire-table tbody{height:auto !important;}
-  .fire-table tbody tr,
-  body.is-fullscreen .fire-table tbody tr{
-    height:76px !important;
-    min-height:76px !important;
-    max-height:76px !important;
-  }
-  .fire-table th,.fire-table td{padding:3px !important;}
-  .fire-table .col-echelon{width:62px !important;}
-  .section-vertical-title,.echelon-cell{
-    font-size:20px !important;
-    line-height:1.15 !important;
-    letter-spacing:.08em !important;
+    font-weight:900 !important;
+    line-height:1 !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+    text-overflow:clip !important;
   }
 
+  /* 第二、第三車列沒有梯次 td，維持 4x2 格。 */
+  .fire-table tbody tr:not(:nth-child(1)):not(:nth-child(4)){
+    margin-top:-1px !important;
+  }
+
+  /* ---------- 下方：專責救護 / 休息 / 因公外出 ---------- */
   #bottomArea,
   body.is-fullscreen #bottomArea{
     display:block !important;
     width:100% !important;
-    height:190px !important;
-    min-height:190px !important;
-    max-height:190px !important;
-    margin-top:7px !important;
+    height:auto !important;
+    min-height:0 !important;
+    max-height:none !important;
+    margin-top:8px !important;
     overflow:visible !important;
   }
+  #bottomArea > .bottom-layout,
   .bottom-layout{
     display:grid !important;
-    grid-template-columns:minmax(0,4fr) minmax(150px,1fr) minmax(150px,1fr) !important;
-    column-gap:7px !important;
+    grid-template-columns:1fr !important;
+    gap:8px !important;
     width:100% !important;
-    min-width:100% !important;
-    height:190px !important;
+    height:auto !important;
+    min-height:0 !important;
+    margin:0 !important;
   }
-  .rescue-panel,.bottom-panel,.rescue-table{
-    height:190px !important;
-    min-height:190px !important;
-    max-height:190px !important;
+  .bottom-col,
+  .bottom-panel,
+  .rescue-panel{
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    max-height:none !important;
+    margin:0 !important;
   }
-  .rescue-side-col{width:58px !important;}
-  .rescue-table tbody{height:190px !important;}
+
+  .rescue-table{
+    display:block !important;
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    margin:0 !important;
+    border:2px solid #2f6048 !important;
+    border-radius:10px !important;
+    overflow:hidden !important;
+    background:#cfd8d3 !important;
+  }
+  .rescue-table colgroup{display:none !important;}
+  .rescue-table tbody{display:block !important; height:auto !important;}
+  .rescue-table tbody tr{
+    display:grid !important;
+    grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+    gap:1px !important;
+    width:100% !important;
+    height:auto !important;
+    min-height:0 !important;
+    max-height:none !important;
+    background:#cfd8d3 !important;
+  }
   .rescue-table tbody tr:first-child{
-    height:44px !important;
-    min-height:44px !important;
-    max-height:44px !important;
+    display:block !important;
+    width:100% !important;
+    height:38px !important;
+    min-height:38px !important;
+    max-height:38px !important;
+  }
+  .rescue-table tbody tr:first-child th{
+    display:none !important;
+  }
+  .rescue-table td.rescue-title.section-vertical-title,
+  body.is-fullscreen .rescue-table td.rescue-title.section-vertical-title{
+    display:flex !important;
+    align-items:center !important;
+    justify-content:flex-start !important;
+    width:100% !important;
+    height:38px !important;
+    min-height:38px !important;
+    max-height:38px !important;
+    padding:0 10px !important;
+    border:0 !important;
+    background:#2f6048 !important;
+    color:#fff !important;
+    font-size:17px !important;
+    font-weight:900 !important;
+    line-height:1 !important;
+    letter-spacing:.04em !important;
+    writing-mode:horizontal-tb !important;
+    text-orientation:mixed !important;
+    white-space:nowrap !important;
   }
   .rescue-table tbody tr:nth-child(2),
   .rescue-table tbody tr:nth-child(3){
-    height:73px !important;
-    min-height:73px !important;
-    max-height:73px !important;
+    height:auto !important;
+    min-height:0 !important;
+    max-height:none !important;
   }
-  .rescue-head,
-  body.is-fullscreen .rescue-head{
+  .rescue-table tbody td.drop-target{
+    position:relative !important;
+    display:flex !important;
+    align-items:flex-end !important;
+    justify-content:center !important;
+    width:auto !important;
+    height:74px !important;
+    min-height:74px !important;
+    max-height:74px !important;
+    padding:27px 3px 3px !important;
+    border:0 !important;
+    background:#fff !important;
+    overflow:hidden !important;
+  }
+  .rescue-table tbody td.drop-target::before{
+    content:attr(data-mobile-label);
+    position:absolute;
+    top:0;
+    left:0;
+    right:0;
+    height:25px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#f0f5f2;
+    border-bottom:1px solid #d7e0db;
+    color:#53655b;
+    font-size:11px;
+    font-weight:800;
+    line-height:1;
+    white-space:nowrap;
+  }
+  .rescue-table .drop-target > .person-chip,
+  .rescue-table .drop-target > .vehicle-chip,
+  body.is-fullscreen .rescue-table .drop-target > .person-chip,
+  body.is-fullscreen .rescue-table .drop-target > .vehicle-chip{
+    position:static !important;
+    inset:auto !important;
+    width:100% !important;
     height:44px !important;
     min-height:44px !important;
     max-height:44px !important;
-    font-size:16px !important;
+    margin:0 !important;
     padding:2px !important;
-  }
-  .rescue-title{
-    font-size:24px !important;
-    line-height:1.15 !important;
-    letter-spacing:.08em !important;
-  }
-  .bottom-panel .panel-title{
-    min-height:44px !important;
-    height:44px !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
     font-size:16px !important;
+    font-weight:900 !important;
+    line-height:1 !important;
+    white-space:nowrap !important;
   }
-  .person-chip,.vehicle-chip{min-height:0 !important;}
+
+  .bottom-panel .panel-title{
+    height:38px !important;
+    min-height:38px !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:flex-start !important;
+    padding:0 10px !important;
+    font-size:17px !important;
+    font-weight:900 !important;
+  }
+  #restingBody,
+  #officialBody{
+    min-height:86px !important;
+    height:auto !important;
+    padding:6px !important;
+    display:flex !important;
+    flex-wrap:wrap !important;
+    align-content:flex-start !important;
+    gap:6px !important;
+  }
+  #restingBody .status-chip,
+  #officialBody .status-chip{
+    flex:0 0 calc(50% - 3px) !important;
+    max-width:calc(50% - 3px) !important;
+    min-height:42px !important;
+    font-size:16px !important;
+    line-height:1 !important;
+  }
+
+  .panel-empty-hint{
+    font-size:13px !important;
+  }
+}
+
+@media (max-width:420px){
+  .fire-table tbody tr,
+  .rescue-table tbody tr{
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  }
+  .fire-table tbody td.drop-target,
+  .rescue-table tbody td.drop-target{
+    height:70px !important;
+    min-height:70px !important;
+    max-height:70px !important;
+  }
+  .fire-table .drop-target > .person-chip,
+  .fire-table .drop-target > .vehicle-chip,
+  .rescue-table .drop-target > .person-chip,
+  .rescue-table .drop-target > .vehicle-chip,
+  body.is-fullscreen .fire-table .drop-target > .person-chip,
+  body.is-fullscreen .fire-table .drop-target > .vehicle-chip,
+  body.is-fullscreen .rescue-table .drop-target > .person-chip,
+  body.is-fullscreen .rescue-table .drop-target > .vehicle-chip{
+    font-size:15px !important;
+  }
 }
 

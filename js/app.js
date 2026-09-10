@@ -726,6 +726,50 @@ $(function(){
     return set;
   }
 
+
+  // =========================================================
+  // v66：人員唯一身分與「已配置」統一判斷
+  // ---------------------------------------------------------
+  // 過去人員池、休息/因公外出、火警表分別用姓名、番號判斷，
+  // 造成同一人有時被判成兩個人，有時又被整個排除。
+  // 從 v66 起，所有人員池排除都只走這一套：番號優先、姓名備援。
+  // 人員池本身不是正式配置位置，因此永遠不納入 placed 集合。
+  // =========================================================
+  function normalizedPersonName(value){
+    return String(value || '').replace(/\s+/g,'').trim();
+  }
+
+  function personIdentityKeys(no,name){
+    const keys=[];
+    const noText=String(no ?? '').trim();
+    const nameText=normalizedPersonName(name);
+    if(noText) keys.push(`no:${noText}`);
+    if(nameText) keys.push(`name:${nameText}`);
+    return keys;
+  }
+
+  function personItemIdentityKeys($item){
+    if(!$item || !$item.length) return [];
+    const no=String($item.attr('data-no') ?? '').trim();
+    const name=String($item.attr('data-value') || $item.find('span').first().text() || $item.text()).trim();
+    return personIdentityKeys(no,name);
+  }
+
+  function placedPersonIdentitySet(){
+    const result=new Set();
+    $('.drop-target [data-drag-type="person"], #restingBody [data-drag-type="person"], #officialBody [data-drag-type="person"]').each(function(){
+      const $item=$(this);
+      // 「火警值班」等職務卡不是人員，不能拿來占用人員身分。
+      if(String($item.attr('data-person-source') || '')==='duty') return;
+      personItemIdentityKeys($item).forEach(key=>result.add(key));
+    });
+    return result;
+  }
+
+  function personIsPlaced(person,placedSet){
+    return personIdentityKeys(person?.no,person?.name).some(key=>placedSet.has(key));
+  }
+
   // =========================================================
   // v47：全看板唯一性
   // ---------------------------------------------------------
@@ -1533,64 +1577,57 @@ $(function(){
   }
 
   function rebuildPersonPool(){
-    const assigned = assignedSet('person');
-    const statuses = statusSet();
     const scheduledToday = todayDutyNumberSet();
     const atStationNow = currentAtStationNumberSet();
     const currentDuty = currentDutyNumberSet();
+    const placedPeople = placedPersonIdentitySet();
     const keyword = $('#personSearch').val().trim().toLowerCase();
     const $pool = $('#personPool').empty();
 
-    // v43：Excel 人員只有「今天勤務表有出勤」才進人員池。
-    // 前端新增的中隊長／義消等勤務表外人員，設定完成後直接供調配，
-    // 不再另外維護「今日出勤」欄位。
+    /*
+       v66 人員池唯一規則：
+       1. Excel 人員：目前時段有勤務才屬於「目前應存在的人」。
+          沒有 detailed duty 時，退回「今天有勤務」。
+       2. 前端人員（中隊長、義消等）：設定後就是可用人員。
+       3. 輪休／請休／補休／公假／連續補休／休假役男等阻擋狀態不進池。
+       4. 只要人已經在火警表、91/92、休息、因公外出任一正式位置，就不能再出現在池裡。
+       5. 上述所有「是否已配置」只使用 placedPersonIdentitySet()，不再混用姓名/番號多套判斷。
+    */
     const merged = [];
     const seen = new Set();
 
     todayRoster.forEach(item=>{
       if(!item || !item.name || !isActiveShift(item)) return;
       const noText=String(item.no ?? '').trim();
-
-      /*
-         v62：Excel 匯入的人員池只顯示「目前時段在隊備勤、而且尚未被配置」的人。
-         以前用 scheduledToday（今天任何時段有出勤）判斷，會把今天稍早／稍晚勤務的人
-         也全部塞回目前的人員池，看起來就像多出一大堆不該出現的人。
-
-         勤務表外的中隊長／義消仍由 manualPersonnel 提供，不受這個條件限制。
-      */
-      /*
-         v65：人員池的正確母集合是「目前時段有勤務的人」，
-         不是只有「在隊備勤」。
-         因此值班或其他當前勤務人員，只要沒有被放到火警表、
-         專責救護、休息、因公外出，也不是請假/輪休等阻擋狀態，
-         就必須留在人員池，不能憑空消失。
-         火警隨機配置仍然只使用「在隊備勤」，兩者用途分開。
-      */
-      const isAvailableNow=!hasDetailedDutyData
+      const isExpectedNow=!hasDetailedDutyData
         ? (!!noText && scheduledToday.has(noText))
         : (!!noText && currentDuty.has(noText));
 
-      if(!isAvailableNow || hasBlockingDutyStatus(noText)) return;
-      if(seen.has(item.name)) return;
-      seen.add(item.name);
+      if(!isExpectedNow || hasBlockingDutyStatus(noText)) return;
+
+      const uniqueKey=noText ? `no:${noText}` : `name:${normalizedPersonName(item.name)}`;
+      if(seen.has(uniqueKey)) return;
+      seen.add(uniqueKey);
       merged.push({...item,_source:'daily'});
     });
 
     manualPersonnel.forEach(item=>{
       if(!item || !item.name) return;
-      if(seen.has(item.name)) return;
-      seen.add(item.name);
+      const noText=String(item.no ?? '').trim();
+      const uniqueKey=noText ? `no:${noText}` : `name:${normalizedPersonName(item.name)}`;
+      if(seen.has(uniqueKey)) return;
+      seen.add(uniqueKey);
       merged.push({...item,_source:'manual'});
     });
 
     const candidates = merged.filter(item=>{
-      if(assigned.has(item.name) || statuses.has(item.name)) return false;
-      if(keyword && !item.name.toLowerCase().includes(keyword) && !String(item.no ?? '').toLowerCase().includes(keyword) && !String(item.role ?? '').toLowerCase().includes(keyword)) return false;
+      if(personIsPlaced(item,placedPeople)) return false;
+      if(keyword && !String(item.name || '').toLowerCase().includes(keyword)
+        && !String(item.no ?? '').toLowerCase().includes(keyword)
+        && !String(item.role ?? '').toLowerCase().includes(keyword)) return false;
       return true;
     });
 
-    // v43：先依職務階級，再於同職務內依番號排序。
-    // 無番號的中隊長仍會因職務優先權排在整個人員池最上方。
     const rolePriority={'中隊長':0,'分隊長':1,'小隊長':2,'隊員':3,'役男':3,'義消':4};
     candidates.sort((a,b)=>{
       const ar=rolePriority[normalizeRole(a.role)] ?? 99;
@@ -1624,8 +1661,6 @@ $(function(){
       const $meta=$('<small class="pool-meta"></small>');
       $meta.append($('<span></span>').text(`${noText ? noText+'號 · ' : ''}${roleLabel(item.role)}`));
 
-      // 「請替」等附加狀態不取代勤務項目；人員池只顯示目前勤務位置。
-      // 例如：22號 · 隊員 [在隊備勤]
       if(isAtStationNow){
         $meta.append($('<span class="duty-badge duty-badge-ready"></span>').text('在隊備勤'));
       }else if(isOnDutyNow){
@@ -2302,7 +2337,7 @@ $(function(){
     }
 
     personPoolSortable = new Sortable($('#personPool')[0],{
-      group:{name:'people',pull:'clone',put:false},
+      group:{name:'people',pull:true,put:false},
       sort:false,
       filter:'.pool-item.is-unavailable',
       preventOnFilter:true,
@@ -2311,7 +2346,12 @@ $(function(){
       delayOnTouchOnly:true,
       touchStartThreshold:4,
       fallbackOnBody:true,
-      fallbackTolerance:5
+      fallbackTolerance:5,
+      onRemove:function(){
+        // v66：人員池採真正移動，不再 clone。放入正式位置後立即重算池內容，
+        // 確保同一人不會同時留在池裡又出現在看板。
+        setTimeout(rebuildPersonPool,0);
+      }
     });
   }
 

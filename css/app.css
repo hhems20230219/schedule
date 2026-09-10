@@ -2856,3 +2856,16 @@ body.is-fullscreen .rescue-table .person-chip{
   }
 }
 
+
+/* =========================================================
+   v64：修正休息 / 因公外出空白提示遮住拖放區
+   ---------------------------------------------------------
+   :empty::after 只是視覺提示，不可接收滑鼠 / 觸控事件，
+   否則 SortableJS 無法偵測到真正的 restingBody / officialBody。
+========================================================= */
+.panel-body-drop:empty::after,
+#restingBody:empty::after,
+#officialBody:empty::after{
+  pointer-events:none !important;
+  user-select:none !important;
+}

@@ -236,7 +236,7 @@ $(function(){
     }).get().filter(Boolean);
 
     return {
-      version:16,
+      version:17,
       date:localDateText(),
       todayRoster:todayRoster.map(item=>({
         no:item.no ?? '',
@@ -334,9 +334,9 @@ $(function(){
       currentDutyKey = '';
       hasDetailedDutyData = false;
 
-      // 尚未匯入勤務表時，先顯示固定的基礎火警配置。
-      // 匯入後會再依當日勤務、休息與請假狀態覆蓋。
-      applyBaseAssignments({onlyEmpty:true,ignoreDuty:true});
+      // v78：第一次完全沒有 boardState 時，主看板必須維持全白。
+      // 固定 JSON 基礎配置不應在尚未匯入勤務表時自行出現在看板，
+      // 否則會與「第一次開啟全白、每日以 Excel 為準」的既定流程互斥。
       $('#currentDutyPeriod').text('尚未匯入');
       syncAll();
       return;
@@ -503,6 +503,38 @@ $(function(){
     const itemType = dragItemType(item);
     const kind = targetKind(target);
     return !!itemType && !!kind && itemType === kind;
+  }
+
+  // v78：統一判斷所有拖曳目的地。
+  // 過去主看板 drop-target 的 onMove 只認 data-kind，
+  // 所以人員從「休息／因公外出」拉到主看板後，
+  // 再想拉回狀態區時會因狀態區沒有 data-kind 而被錯誤拒絕。
+  // 現在主看板、人員池、休息、因公外出與返回區共用同一套規則。
+  function isStatusDropTarget(target){
+    if(!target) return false;
+    return target.id === 'restingBody' || target.id === 'officialBody';
+  }
+
+  function isAllowedDragDestination(item,target){
+    if(!item || !target) return false;
+
+    const itemType = dragItemType(item);
+    const personSource = String($(item).attr('data-person-source') || '').trim();
+
+    // 返回區接受人員與車輛；實際回哪個池由 onAdd 再判斷。
+    if(target.id === 'returnZone') return itemType === 'person' || itemType === 'vehicle';
+
+    // 休息／因公外出只接受真正的人員，不接受車輛與「火警值班」職務卡。
+    if(isStatusDropTarget(target)){
+      return itemType === 'person' && personSource !== 'duty';
+    }
+
+    // 一般主看板格依 data-kind 嚴格限制 person / vehicle。
+    if($(target).hasClass('drop-target')){
+      return isItemAllowedInDropTarget(item,target);
+    }
+
+    return false;
   }
 
   function isSavedItemAllowedInTarget(item,target){
@@ -802,8 +834,12 @@ $(function(){
 
     // 91 / 92 車固定以「專責救護」為唯一位置。
     if(type==='vehicle' && (value==='91車' || value==='92車') && String($parent.attr('data-duty-vehicle') || '')===value) return 1000;
-    // 勤務表自動休息優先保留。
-    if($parent.is('#restingBody') || $parent.closest('#restingBody').length) return 900;
+    // v78：狀態區本身就是正式位置；若舊資料或極短暫拖曳狀態造成重複，
+    // Excel 自動休息優先最高，其次保留人工休息／因公外出，避免人工狀態被火警格誤吃掉。
+    const inRest = $parent.is('#restingBody') || $parent.closest('#restingBody').length;
+    const inOfficial = $parent.is('#officialBody') || $parent.closest('#officialBody').length;
+    if(inRest && String($item.attr('data-auto-source') || '') === 'duty-period') return 950;
+    if(inRest || inOfficial) return 900;
     // 91 / 92 當前救護人員優先於一般火警基礎配置。
     if($parent.attr('data-duty-source')==='備勤91' || $parent.attr('data-duty-source')==='備勤救災') return 800;
     // 火警值班右側由值班欄自動帶入，優先於一般基礎配置。
@@ -1386,10 +1422,43 @@ $(function(){
   // 駕駛車序：11車 → 31車 → 61車 → 中隊指揮車；瞄子手／副瞄子手只有 11、31、61 車。
   // 帶隊官完全由 Excel 基礎編制帶入，不參與隨機；中隊長僅能由人員池手動拉入。
   // =========================================================
-  function shuffleCopy(items){
+  // v78：多人同時開啟 GitHub Pages 時，不能每台瀏覽器各自 Math.random()。
+  // 否則跨勤務時段後，同一份 Excel 會在不同螢幕產生不同火警隨機編組。
+  // 改成「同一勤務日 + 同一時段 + 同一候選人集合」產生相同的偽隨機順序：
+  // 看起來仍是隨機分配，但所有裝置會得到一致結果。
+  function dutyDayKey(){
+    const now=new Date();
+    // 勤務日定義為 08:00 至隔日 08:00；凌晨 00:00~07:59 屬於前一勤務日。
+    if(now.getHours()<8) now.setDate(now.getDate()-1);
+    const y=now.getFullYear();
+    const m=String(now.getMonth()+1).padStart(2,'0');
+    const d=String(now.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function seededRandom(seedText){
+    let seed=2166136261;
+    const text=String(seedText || '');
+    for(let i=0;i<text.length;i++){
+      seed^=text.charCodeAt(i);
+      seed=Math.imul(seed,16777619);
+    }
+    seed>>>=0;
+
+    return function(){
+      seed+=0x6D2B79F5;
+      let t=seed;
+      t=Math.imul(t^(t>>>15),t|1);
+      t^=t+Math.imul(t^(t>>>7),t|61);
+      return ((t^(t>>>14))>>>0)/4294967296;
+    };
+  }
+
+  function shuffleCopy(items,seedText=''){
     const result=[...(items || [])];
+    const random=seededRandom(seedText);
     for(let i=result.length-1;i>0;i--){
-      const j=Math.floor(Math.random()*(i+1));
+      const j=Math.floor(random()*(i+1));
       [result[i],result[j]]=[result[j],result[i]];
     }
     return result;
@@ -1517,11 +1586,18 @@ $(function(){
     // 帶隊官不在這裡處理：一律保留 Excel 基礎編制。
     // 中隊長也不讀勤務表；如需配置，由人員池手動拖入。
     const assigned=assignedPersonNoSet();
-    const candidates=shuffleCopy(eligibleAtStationPeople(period).filter(person=>{
+    const eligible=eligibleAtStationPeople(period).filter(person=>{
       const no=String(person.no ?? '').trim();
       if(!no) return false;
       return !assigned.has(no);
-    }));
+    });
+
+    const identitySeed=eligible
+      .map(person=>String(person.no ?? '').trim() || normalizedPersonName(person.name))
+      .sort()
+      .join(',');
+    const randomSeed=`${dutyDayKey()}|${period.start || ''}|${period.end || ''}|${identitySeed}`;
+    const candidates=shuffleCopy(eligible,randomSeed);
 
     let candidateIndex=0;
     targetIds.forEach(slotId=>{
@@ -2464,11 +2540,10 @@ $(function(){
       // 不只依賴 Sortable group，再檢查一次實際 item / target 型別。
       // 例如 11車(type=vehicle) 只能進入 data-kind=vehicle 的車輛欄。
       onMove:function(evt){
-        // 返回區不是正式配置格，因此沒有 data-kind。
-        // 若拖曳目標是返回區，直接允許人員 / 車輛離開目前配置格；
-        // 其他目標才依 data-kind 嚴格限制型別。
-        if(evt.to && evt.to.id === 'returnZone') return true;
-        return isItemAllowedInDropTarget(evt.dragged,evt.to);
+        // v78：統一使用 isAllowedDragDestination()。
+        // 特別修正「從休息／因公外出拉到主看板後，無法再拉回去」：
+        // restingBody / officialBody 沒有 data-kind，舊版因此被當成非法目的地。
+        return isAllowedDragDestination(evt.dragged,evt.to);
       },
 
       onStart:function(evt){
@@ -2573,9 +2648,10 @@ $(function(){
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
 
-      // 休息 / 因公外出只接受人員，車輛一律拒絕。
+      // v78：狀態區與主看板使用完全相同的目的地驗證，
+      // 可雙向拖曳：主看板 ↔ 休息 ↔ 因公外出 ↔ 返回區。
       onMove:function(evt){
-        return dragItemType(evt.dragged) === 'person' && String($(evt.dragged).attr('data-person-source') || '') !== 'duty';
+        return isAllowedDragDestination(evt.dragged,evt.to);
       },
 
       onStart:function(){
@@ -3891,9 +3967,12 @@ $(function(){
     }));
 
     hasDetailedDutyData = true;
-    importedBaseAssignments = Array.isArray(pendingImport.baseAssignments) && pendingImport.baseAssignments.length
+    // v78：每日正式匯入後，只信任這份 Excel 解析出的火警基礎配置。
+    // 若 Excel 沒解析到，就保持空白，不可偷偷套用 board-data.json 的舊日期範例，
+    // 否則會把前一天或測試資料誤當成今天正式配置。
+    importedBaseAssignments = Array.isArray(pendingImport.baseAssignments)
       ? pendingImport.baseAssignments.map(item=>({...item}))
-      : (Array.isArray(appConfig?.baseAssignments) ? appConfig.baseAssignments.map(item=>({...item})) : []);
+      : [];
     dutyStatusByNo = new Map();
     if(pendingImport.statuses instanceof Map){
       pendingImport.statuses.forEach((statuses,no)=>{

@@ -1,4 +1,4 @@
-火警出動人員車輛分配表 v27
+火警出動人員車輛分配表 v78
 
 【本版主要修正】
 1. 新增 true / false 本地與線上資料切換。
@@ -15,7 +15,7 @@
 修改 data/board-data.json：
 
   "dataSource": {
-    "useLocalData": true
+    "useLocalData": false
   }
 
 true：
@@ -519,3 +519,26 @@ v76：
 5. 值班指導員不納入火警隨機分配；火警隨機仍只使用 Excel 明確的「在隊備勤」名單。
 6. allDutyNumbers 仍包含值班指導員，僅用於判斷該員為當日上班人員。
 7. boardState version 更新為 16。
+
+v78：完整互斥／一致性檢查與拖曳修正（2026-09-11）
+1. 修正「從休息或因公外出拉出後，就無法再拉回去」的根因：
+   主看板 drop-target 的 Sortable onMove 過去只接受 data-kind 目的地，
+   但 restingBody / officialBody 沒有 data-kind，因此從主看板往狀態區會被錯誤拒絕。
+   v78 新增統一 isAllowedDragDestination()，主看板 ↔ 休息 ↔ 因公外出 ↔ 返回區可雙向拖曳。
+2. 第一次沒有 boardState 時真正維持全白，不再偷偷套用 board-data.json 固定基礎配置。
+3. 每日匯入 Excel 後只使用該 Excel 解析出的火警基礎配置；解析不到就保持空白，
+   不再回退到 JSON 舊日期範例，避免跨日誤帶人員／車輛。
+4. board-data.json 正式預設改為 useLocalData=false，符合 GitHub Pages + GAS + Google Sheet 架構。
+5. board-data.json 的 baseAssignments 清空；每日人員與火警基礎配置以 Excel 為唯一正式來源。
+6. 修正多裝置跨時段可能出現不同「隨機火警編組」：
+   原本每台瀏覽器各自 Math.random()，相同資料可能產生不同配置。
+   v78 改成以勤務日 + 時段 + 候選番號產生固定偽隨機順序，同時保留隨機效果與跨裝置一致性。
+7. 唯一性優先順序補強：Excel 自動休息 > 人工休息／因公外出 > 91/92 > 火警值班連動 > 一般配置。
+   避免舊重複資料或拖曳瞬間狀態造成「因公外出」被較前面的火警格誤刪。
+8. boardState version 更新為 17；index.html CSS / JS cache-buster 更新為 v78。
+9. 本次上傳包內 README 與 cache-buster 實際停在 v76；使用者確認正式前版為 v77。
+   本版依使用者指定版號承接為 v78，但不虛構缺少的 v77 變更內容。
+10. 尚未解決且屬架構層級的風險：GitHub Pages 為靜態前端，GAS Web App 若公開給 anyone，
+    任何知道 API URL 的人理論上都能 POST。前端放密碼／token 不能真正保密。
+    若未來要限制只有值班台可編輯，需要另外導入可驗證身分的後端授權機制。
+

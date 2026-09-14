@@ -28,6 +28,10 @@ $(function(){
   let dutyMaster = [];
   // 每次匯入 Excel 時，直接以該檔案內的「火警出動人員車輛分配表」作為當日基礎配置。
   let importedBaseAssignments = [];
+  // v79：記錄「人工從火警主表拉回車輛池」的車輛格。
+  // 只要某車輛格被人工停用，系統跨勤務時段也不會自動把該車補回，
+  // 並且會跳過對應的駕駛員自動安排；重新把車拉回該格後即解除停用。
+  let suppressedFireVehicleSlots = new Set();
   let appConfig = null;
   let currentDutyKey = '';
   // UI-only 測試時段；空字串代表依電腦現在時間自動切換。
@@ -236,8 +240,10 @@ $(function(){
     }).get().filter(Boolean);
 
     return {
-      version:13,
+      version:18,
       date:localDateText(),
+      // v79：保存人工停用的火警車輛格，避免重新整理／跨時段後車輛又被自動補回。
+      suppressedFireVehicleSlots:[...suppressedFireVehicleSlots],
       todayRoster:todayRoster.map(item=>({
         no:item.no ?? '',
         name:item.name,
@@ -251,6 +257,7 @@ $(function(){
         '備勤91':[...(period['備勤91'] || [])],
         '備勤救災':[...(period['備勤救災'] || [])],
         '值班':[...(period['值班'] || [])],
+        '值班指導員':[...(period['值班指導員'] || [])],
         '在隊備勤':[...(period['在隊備勤'] || [])],
         '休息時間':[...(period['休息時間'] || [])],
         allDutyNumbers:[...(period.allDutyNumbers || [])]
@@ -317,6 +324,7 @@ $(function(){
       .attr('data-person-source',restoredSource)
       .append($('<span></span>').text(item.value));
     if(item.dutyRole) $chip.attr('data-duty-role',item.dutyRole);
+    if(item.autoSource) $chip.attr('data-auto-source',item.autoSource);
 
     applyPersonRole($chip,item.value,item.role);
     return $chip;
@@ -329,12 +337,13 @@ $(function(){
       todayRoster = [];
       dutySchedule = [];
       dutyStatusByNo = new Map();
+      suppressedFireVehicleSlots = new Set();
       currentDutyKey = '';
       hasDetailedDutyData = false;
 
-      // 尚未匯入勤務表時，先顯示固定的基礎火警配置。
-      // 匯入後會再依當日勤務、休息與請假狀態覆蓋。
-      applyBaseAssignments({onlyEmpty:true,ignoreDuty:true});
+      // v78：第一次完全沒有 boardState 時，主看板必須維持全白。
+      // 固定 JSON 基礎配置不應在尚未匯入勤務表時自行出現在看板，
+      // 否則會與「第一次開啟全白、每日以 Excel 為準」的既定流程互斥。
       $('#currentDutyPeriod').text('尚未匯入');
       syncAll();
       return;
@@ -362,6 +371,7 @@ $(function(){
           '備勤91':[...(period['備勤91'] || [])],
           '備勤救災':[...(period['備勤救災'] || [])],
           '值班':[...(period['值班'] || [])],
+          '值班指導員':[...(period['值班指導員'] || [])],
           '在隊備勤':[...(period['在隊備勤'] || [])],
           '休息時間':[...(period['休息時間'] || [])],
           allDutyNumbers:[...(period.allDutyNumbers || [])]
@@ -424,6 +434,13 @@ $(function(){
         .map(item=>typeof item === 'string' ? {name:item,type:'車輛'} : {name:String(item.name),type:String(item.type || '車輛')});
       renderVehiclePool();
     }
+
+    // v79：舊版沒有此欄位時視為沒有停用車輛，維持向下相容。
+    suppressedFireVehicleSlots = new Set(
+      Array.isArray(state.suppressedFireVehicleSlots)
+        ? state.suppressedFireVehicleSlots.map(item=>String(item || '').trim()).filter(Boolean)
+        : []
+    );
 
     currentDutyKey = String(state.currentDutyKey || '');
 
@@ -500,6 +517,38 @@ $(function(){
     const itemType = dragItemType(item);
     const kind = targetKind(target);
     return !!itemType && !!kind && itemType === kind;
+  }
+
+  // v78：統一判斷所有拖曳目的地。
+  // 過去主看板 drop-target 的 onMove 只認 data-kind，
+  // 所以人員從「休息／因公外出」拉到主看板後，
+  // 再想拉回狀態區時會因狀態區沒有 data-kind 而被錯誤拒絕。
+  // 現在主看板、人員池、休息、因公外出與返回區共用同一套規則。
+  function isStatusDropTarget(target){
+    if(!target) return false;
+    return target.id === 'restingBody' || target.id === 'officialBody';
+  }
+
+  function isAllowedDragDestination(item,target){
+    if(!item || !target) return false;
+
+    const itemType = dragItemType(item);
+    const personSource = String($(item).attr('data-person-source') || '').trim();
+
+    // 返回區接受人員與車輛；實際回哪個池由 onAdd 再判斷。
+    if(target.id === 'returnZone') return itemType === 'person' || itemType === 'vehicle';
+
+    // 休息／因公外出只接受真正的人員，不接受車輛與「火警值班」職務卡。
+    if(isStatusDropTarget(target)){
+      return itemType === 'person' && personSource !== 'duty';
+    }
+
+    // 一般主看板格依 data-kind 嚴格限制 person / vehicle。
+    if($(target).hasClass('drop-target')){
+      return isItemAllowedInDropTarget(item,target);
+    }
+
+    return false;
   }
 
   function isSavedItemAllowedInTarget(item,target){
@@ -726,6 +775,50 @@ $(function(){
     return set;
   }
 
+
+  // =========================================================
+  // v66：人員唯一身分與「已配置」統一判斷
+  // ---------------------------------------------------------
+  // 過去人員池、休息/因公外出、火警表分別用姓名、番號判斷，
+  // 造成同一人有時被判成兩個人，有時又被整個排除。
+  // 從 v66 起，所有人員池排除都只走這一套：番號優先、姓名備援。
+  // 人員池本身不是正式配置位置，因此永遠不納入 placed 集合。
+  // =========================================================
+  function normalizedPersonName(value){
+    return String(value || '').replace(/\s+/g,'').trim();
+  }
+
+  function personIdentityKeys(no,name){
+    const keys=[];
+    const noText=String(no ?? '').trim();
+    const nameText=normalizedPersonName(name);
+    if(noText) keys.push(`no:${noText}`);
+    if(nameText) keys.push(`name:${nameText}`);
+    return keys;
+  }
+
+  function personItemIdentityKeys($item){
+    if(!$item || !$item.length) return [];
+    const no=String($item.attr('data-no') ?? '').trim();
+    const name=String($item.attr('data-value') || $item.find('span').first().text() || $item.text()).trim();
+    return personIdentityKeys(no,name);
+  }
+
+  function placedPersonIdentitySet(){
+    const result=new Set();
+    $('.drop-target [data-drag-type="person"], #restingBody [data-drag-type="person"], #officialBody [data-drag-type="person"]').each(function(){
+      const $item=$(this);
+      // 「火警值班」等職務卡不是人員，不能拿來占用人員身分。
+      if(String($item.attr('data-person-source') || '')==='duty') return;
+      personItemIdentityKeys($item).forEach(key=>result.add(key));
+    });
+    return result;
+  }
+
+  function personIsPlaced(person,placedSet){
+    return personIdentityKeys(person?.no,person?.name).some(key=>placedSet.has(key));
+  }
+
   // =========================================================
   // v47：全看板唯一性
   // ---------------------------------------------------------
@@ -755,8 +848,12 @@ $(function(){
 
     // 91 / 92 車固定以「專責救護」為唯一位置。
     if(type==='vehicle' && (value==='91車' || value==='92車') && String($parent.attr('data-duty-vehicle') || '')===value) return 1000;
-    // 勤務表自動休息優先保留。
-    if($parent.is('#restingBody') || $parent.closest('#restingBody').length) return 900;
+    // v78：狀態區本身就是正式位置；若舊資料或極短暫拖曳狀態造成重複，
+    // Excel 自動休息優先最高，其次保留人工休息／因公外出，避免人工狀態被火警格誤吃掉。
+    const inRest = $parent.is('#restingBody') || $parent.closest('#restingBody').length;
+    const inOfficial = $parent.is('#officialBody') || $parent.closest('#officialBody').length;
+    if(inRest && String($item.attr('data-auto-source') || '') === 'duty-period') return 950;
+    if(inRest || inOfficial) return 900;
     // 91 / 92 當前救護人員優先於一般火警基礎配置。
     if($parent.attr('data-duty-source')==='備勤91' || $parent.attr('data-duty-source')==='備勤救災') return 800;
     // 火警值班右側由值班欄自動帶入，優先於一般基礎配置。
@@ -1106,6 +1203,8 @@ $(function(){
       if(assignment.type === 'vehicle'){
         const value = String(assignment.value || '').trim();
         if(!value || targetKind($target[0]) !== 'vehicle') return;
+        // v79：人工已把這台火警車拉回車輛池時，基礎配置不可又把它自動補回。
+        if(suppressedFireVehicleSlots.has(slotId)) return;
         if(assignedVehicles.has(value)) return;
         $target.empty().append(
           $('<div class="vehicle-chip"></div>')
@@ -1209,7 +1308,10 @@ $(function(){
     const $target = $(`.panel-body-drop[data-duty-source="${source}"]`);
 
     if(!$target.length) return;
-    $target.empty();
+
+    // v75：只移除上一輪由 Excel 自動帶入的狀態卡。
+    // 人工拖進休息區的人員/義消不能因為按「帶入人員」就消失。
+    $target.children('[data-auto-source="duty-period"]').remove();
 
     list.forEach(no=>{
       const person = findPersonByNo(no);
@@ -1218,10 +1320,24 @@ $(function(){
         return;
       }
 
-      // 勤務表明確標示「休息時間」時，以勤務表為最高優先：
-      // 基礎配置、91/92 或人工配置只要是同一人，都先移除。
+      // Excel 本時段明確指定的人仍具有勤務優先權：
+      // 同一人若在其他看板位置，先移除，避免全站重複。
       removePersonFromBoardByNo(no,$target[0]);
-      $target.append(createPersonChip(person,'status-chip'));
+
+      // 若該人已由人工放在同一個休息區，不再新增第二張。
+      const alreadyHere=$target.children('[data-drag-type="person"]').filter(function(){
+        const $item=$(this);
+        const itemNo=String($item.attr('data-no') || '').trim();
+        const itemName=String($item.attr('data-value') || '').trim();
+        return (itemNo && itemNo===String(person.no ?? '').trim()) ||
+               (!itemNo && itemName===String(person.name || '').trim());
+      }).length>0;
+      if(alreadyHere) return;
+
+      $target.append(
+        createPersonChip(person,'status-chip')
+          .attr('data-auto-source','duty-period')
+      );
     });
   }
 
@@ -1317,15 +1433,48 @@ $(function(){
   // v52 在隊備勤 → 火警出動隨機編組
   // ---------------------------------------------------------
   // 只有目前時段「在隊備勤」的人才會自動補入火警主表。
-  // 排除：91 / 92、休息、請假等不可排狀態、義消，以及目前值班人員。
+  // 排除：91 / 92、休息、請假等不可排狀態、小隊長、役男、義消，以及目前值班人員。
   // 配置優先順序：先依車序填駕駛，再依車序填瞄子手，再依車序填副瞄子手。
   // 駕駛車序：11車 → 31車 → 61車 → 中隊指揮車；瞄子手／副瞄子手只有 11、31、61 車。
   // 帶隊官完全由 Excel 基礎編制帶入，不參與隨機；中隊長僅能由人員池手動拉入。
   // =========================================================
-  function shuffleCopy(items){
+  // v78：多人同時開啟 GitHub Pages 時，不能每台瀏覽器各自 Math.random()。
+  // 否則跨勤務時段後，同一份 Excel 會在不同螢幕產生不同火警隨機編組。
+  // 改成「同一勤務日 + 同一時段 + 同一候選人集合」產生相同的偽隨機順序：
+  // 看起來仍是隨機分配，但所有裝置會得到一致結果。
+  function dutyDayKey(){
+    const now=new Date();
+    // 勤務日定義為 08:00 至隔日 08:00；凌晨 00:00~07:59 屬於前一勤務日。
+    if(now.getHours()<8) now.setDate(now.getDate()-1);
+    const y=now.getFullYear();
+    const m=String(now.getMonth()+1).padStart(2,'0');
+    const d=String(now.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function seededRandom(seedText){
+    let seed=2166136261;
+    const text=String(seedText || '');
+    for(let i=0;i<text.length;i++){
+      seed^=text.charCodeAt(i);
+      seed=Math.imul(seed,16777619);
+    }
+    seed>>>=0;
+
+    return function(){
+      seed+=0x6D2B79F5;
+      let t=seed;
+      t=Math.imul(t^(t>>>15),t|1);
+      t^=t+Math.imul(t^(t>>>7),t|61);
+      return ((t^(t>>>14))>>>0)/4294967296;
+    };
+  }
+
+  function shuffleCopy(items,seedText=''){
     const result=[...(items || [])];
+    const random=seededRandom(seedText);
     for(let i=result.length-1;i>0;i--){
-      const j=Math.floor(Math.random()*(i+1));
+      const j=Math.floor(random()*(i+1));
       [result[i],result[j]]=[result[j],result[i]];
     }
     return result;
@@ -1347,9 +1496,39 @@ $(function(){
     ];
   }
 
+  // v79：火警車輛格與駕駛格是一對一關係。
+  // 當某台車被人工拉回車輛池，只跳過該車的「駕駛員」自動安排；
+  // 瞄子手與副瞄子手仍依既有規則處理，不額外改變使用者原本流程。
+  const fireVehicleDriverSlotMap = {
+    'first-1-vehicle':'first-1-driver',
+    'first-3-vehicle':'first-3-driver',
+    'first-2-vehicle':'first-2-driver',
+    'second-3-vehicle':'second-3-driver'
+  };
+
+  function driverSlotForVehicleSlot(vehicleSlotId){
+    return fireVehicleDriverSlotMap[String(vehicleSlotId || '').trim()] || '';
+  }
+
+  function hasVehicleInFireSlot(vehicleSlotId){
+    const $vehicleSlot=$(`.drop-target[data-slot-id="${vehicleSlotId}"]`).first();
+    return $vehicleSlot.children('[data-drag-type="vehicle"]').length > 0;
+  }
+
+  function clearAutoDriverForVehicleSlot(vehicleSlotId){
+    const driverSlotId=driverSlotForVehicleSlot(vehicleSlotId);
+    if(!driverSlotId) return;
+
+    // 只移除系統自動配置的駕駛；人工拉入的駕駛視為值班台明確決定，不自動刪除。
+    $(`.drop-target[data-slot-id="${driverSlotId}"] [data-auto-source="fire-random"][data-drag-type="person"]`).remove();
+  }
+
   function ensureMainFireVehicle(slotId,vehicleName){
     const $target=$(`.drop-target[data-slot-id="${slotId}"]`).first();
     if(!$target.length || targetKind($target[0])!=='vehicle') return;
+
+    // v79：使用者已明確把這格車輛拉回池中，就尊重人工決定，不自動補回。
+    if(suppressedFireVehicleSlots.has(slotId)) return;
     const $current=$target.children('[data-drag-type="vehicle"]').first();
     if($current.length){
       const current=String($current.attr('data-value') || $current.text().trim()).trim();
@@ -1358,8 +1537,11 @@ $(function(){
       if(!$current.attr('data-auto-source')) return;
       $current.remove();
     }
-    // 同一車輛只能存在一份；若別處已有人工配置則不再複製。
-    const $duplicate=$(`[data-drag-type="vehicle"][data-value="${vehicleName}"]`).filter(function(){
+    // v74：唯一性只能檢查「正式看板」。
+    // 車輛池只是未配置來源，不代表車輛已經放到看板。
+    // v73 掃描整個 DOM，會因車輛池本來就有「中隊指揮車」而誤判重複，
+    // 導致 second-3-vehicle 永遠補不進去。
+    const $duplicate=$(`.drop-target [data-drag-type="vehicle"][data-value="${vehicleName}"]`).filter(function(){
       return !$.contains($target[0],this);
     }).first();
     if($duplicate.length) return;
@@ -1386,9 +1568,48 @@ $(function(){
       if(!no || !atStation.has(no)) return false;
       if(rescue.has(no) || resting.has(no) || watch.has(no)) return false;
       if(hasBlockingDutyStatus(no)) return false;
-      if(normalizeRole(person?.role)==='義消') return false;
+
+      // v73：火警隨機編組只從可隨機配置的一般人員產生。
+      // 小隊長由 Excel 基礎編制擔任帶隊官，不進入駕駛／瞄子手／副瞄子手隨機池；
+      // 役男與義消也不納入自動隨機配置。
+      const role=normalizeRole(person?.role);
+      if(['小隊長','役男','義消'].includes(role)) return false;
       return true;
     });
+  }
+
+  function ensureFixedFireDutyCard(){
+    const $target=$('.drop-target[data-slot-id="second-3-photo"]').first();
+    if(!$target.length || targetKind($target[0])!=='person') return;
+
+    const $current=$target.children('[data-drag-type]').first();
+    if($current.length){
+      const currentDuty=String($current.attr('data-duty-role') || '').trim();
+      if(currentDuty==='火警值班') return;
+
+      // 人工放入的內容仍保留；只有空格或系統自動內容才由勤務表固定配置補上。
+      if(!$current.attr('data-auto-source')) return;
+      $current.remove();
+    }
+
+    // 全看板只允許一張火警值班卡；若舊狀態放在別格，移回固定位置。
+    const $existing=$('.drop-target [data-person-source="duty"][data-duty-role="火警值班"]').first();
+    if($existing.length){
+      $existing.detach().attr('data-auto-source','base');
+      $target.empty().append($existing);
+      return;
+    }
+
+    $target.append(
+      $('<div class="person-chip duty-assignment-chip"></div>')
+        .attr('data-drag-type','person')
+        .attr('data-value','火警值班')
+        .attr('data-no','')
+        .attr('data-person-source','duty')
+        .attr('data-duty-role','火警值班')
+        .attr('data-auto-source','base')
+        .text('火警值班')
+    );
   }
 
   function applyAtStationFireRandom(period){
@@ -1408,17 +1629,32 @@ $(function(){
       $target.children('[data-auto-source="base"][data-drag-type="person"]').remove();
     });
 
+    // v79：駕駛格只有在對應車輛目前真的存在於主表時才參與自動編組。
+    // 例如 31車被拉回車輛池，就直接跳過 first-3-driver，不會浪費一位人員。
+    const activeTargetIds=targetIds.filter(slotId=>{
+      const vehicleSlotId=Object.keys(fireVehicleDriverSlotMap).find(key=>fireVehicleDriverSlotMap[key]===slotId);
+      if(!vehicleSlotId) return true;
+      return hasVehicleInFireSlot(vehicleSlotId);
+    });
+
     // 帶隊官不在這裡處理：一律保留 Excel 基礎編制。
     // 中隊長也不讀勤務表；如需配置，由人員池手動拖入。
     const assigned=assignedPersonNoSet();
-    const candidates=shuffleCopy(eligibleAtStationPeople(period).filter(person=>{
+    const eligible=eligibleAtStationPeople(period).filter(person=>{
       const no=String(person.no ?? '').trim();
       if(!no) return false;
       return !assigned.has(no);
-    }));
+    });
+
+    const identitySeed=eligible
+      .map(person=>String(person.no ?? '').trim() || normalizedPersonName(person.name))
+      .sort()
+      .join(',');
+    const randomSeed=`${dutyDayKey()}|${period.start || ''}|${period.end || ''}|${identitySeed}`;
+    const candidates=shuffleCopy(eligible,randomSeed);
 
     let candidateIndex=0;
-    targetIds.forEach(slotId=>{
+    activeTargetIds.forEach(slotId=>{
       const $target=$(`.drop-target[data-slot-id="${slotId}"]`).first();
       if(!$target.length || $target.children('[data-drag-type]').length) return;
 
@@ -1433,15 +1669,22 @@ $(function(){
   function applyDutyPeriod(period){
     if(!period) return;
 
-    // 清掉上一時段的『自動休息』與『自動基礎配置』，再依目前/測試時段重算。
-    // 人工拖曳的配置不會被 clearAutoBaseAssignments() 清除。
-    $('#restingBody').empty();
+    // v75：只清除「系統自動」配置，人工拖入的人員（包含義消）必須保留。
+    // v74 直接 $('#restingBody').empty()，所以按「帶入人員」時，
+    // 手動放在休息區的義消/人員會被一起刪掉。
+    $('#restingBody [data-auto-source="duty-period"]').remove();
     clearAutoBaseAssignments();
     clearAutoFireRandomAssignments();
 
     // Excel 右上角仍提供當日基礎車輛、帶隊官、火警值班等設定；
     // 但人員只有目前時段「在隊備勤」才允許自動帶入。
     applyBaseAssignments({onlyEmpty:true,ignoreDuty:false});
+
+    // v73：這兩格是正式勤務表固定配置，不需要使用者再從池中手動拖入。
+    // 中指車固定在第二梯次最後一列的車輛格；
+    // 火警值班固定在第二梯次最後一列的攝影照相格。
+    ensureMainFireVehicle('second-3-vehicle','中隊指揮車');
+    ensureFixedFireDutyCard();
 
     ensureDutyVehicle('91車');
     ensureDutyVehicle('92車');
@@ -1529,49 +1772,83 @@ $(function(){
   function currentAtStationNumberSet(){
     if(!hasDetailedDutyData) return new Set();
     const period = getActiveDutyPeriod();
-    return new Set((period?.['在隊備勤'] || []).map(no=>String(no)));
+
+    /*
+       v76：
+       「值班指導員」沒有獨立的看板配置格，因此人仍是在隊可用狀態。
+       人員池顯示時，將：
+         在隊備勤 + 值班指導員
+       都標示為「在隊備勤」。
+
+       注意：火警隨機分配仍只使用 period['在隊備勤']，
+       不會因這裡的顯示規則把值班指導員拉進火警隨機編組。
+    */
+    return new Set([
+      ...(period?.['在隊備勤'] || []),
+      ...(period?.['值班指導員'] || [])
+    ].map(no=>String(no)));
   }
 
   function rebuildPersonPool(){
-    const assigned = assignedSet('person');
-    const statuses = statusSet();
     const scheduledToday = todayDutyNumberSet();
     const atStationNow = currentAtStationNumberSet();
     const currentDuty = currentDutyNumberSet();
+    const placedPeople = placedPersonIdentitySet();
     const keyword = $('#personSearch').val().trim().toLowerCase();
     const $pool = $('#personPool').empty();
 
-    // v43：Excel 人員只有「今天勤務表有出勤」才進人員池。
-    // 前端新增的中隊長／義消等勤務表外人員，設定完成後直接供調配，
-    // 不再另外維護「今日出勤」欄位。
+    /*
+       v67 人員池核心規則：
+       ---------------------------------------------------------
+       1. 先決定「今天有上班的人」：只要番號在今天任一勤務時段出現過，
+          就視為今天的上班人員。不能因為某一個時段沒有再次寫到該番號，
+          就把這個人從系統中移除。
+       2. 今天有上班的人，初始概念上全部都在人員池。
+       3. 再依目前勤務時段，把 91、92、休息、火警值班、火警自動編組等
+          實際配置到正式位置；placedPersonIdentitySet() 會把這些已配置人員
+          從人員池排除。
+       4. 因此：今天有上班，但目前沒有被配置到任何正式位置的人，
+          必須留在人員池，絕對不能憑空消失。
+       5. 輪休／請休／補休／公假／連續補休／休假役男等阻擋狀態，
+          不屬於今天可用的上班人員，不進人員池。
+       6. 中隊長、義消等前端手動人員仍維持設定後可用；若已被拖到正式位置，
+          同樣由 placedPersonIdentitySet() 排除，確保全看板唯一。
+    */
     const merged = [];
     const seen = new Set();
 
     todayRoster.forEach(item=>{
       if(!item || !item.name || !isActiveShift(item)) return;
       const noText=String(item.no ?? '').trim();
-      const isAttending=!hasDetailedDutyData || (!!noText && scheduledToday.has(noText));
-      if(!isAttending || hasBlockingDutyStatus(noText)) return;
-      if(seen.has(item.name)) return;
-      seen.add(item.name);
+
+      // 有詳細勤務資料時，人員是否「存在」看的是今天整天是否有上班，
+      // 不是只看目前時段。這可避免 11:00-12:00 之類時段資料較少時人員消失。
+      const isWorkingToday = !!noText && scheduledToday.has(noText);
+      if(!isWorkingToday || hasBlockingDutyStatus(noText)) return;
+
+      const uniqueKey=noText ? `no:${noText}` : `name:${normalizedPersonName(item.name)}`;
+      if(seen.has(uniqueKey)) return;
+      seen.add(uniqueKey);
       merged.push({...item,_source:'daily'});
     });
 
     manualPersonnel.forEach(item=>{
       if(!item || !item.name) return;
-      if(seen.has(item.name)) return;
-      seen.add(item.name);
+      const noText=String(item.no ?? '').trim();
+      const uniqueKey=noText ? `no:${noText}` : `name:${normalizedPersonName(item.name)}`;
+      if(seen.has(uniqueKey)) return;
+      seen.add(uniqueKey);
       merged.push({...item,_source:'manual'});
     });
 
     const candidates = merged.filter(item=>{
-      if(assigned.has(item.name) || statuses.has(item.name)) return false;
-      if(keyword && !item.name.toLowerCase().includes(keyword) && !String(item.no ?? '').toLowerCase().includes(keyword) && !String(item.role ?? '').toLowerCase().includes(keyword)) return false;
+      if(personIsPlaced(item,placedPeople)) return false;
+      if(keyword && !String(item.name || '').toLowerCase().includes(keyword)
+        && !String(item.no ?? '').toLowerCase().includes(keyword)
+        && !String(item.role ?? '').toLowerCase().includes(keyword)) return false;
       return true;
     });
 
-    // v43：先依職務階級，再於同職務內依番號排序。
-    // 無番號的中隊長仍會因職務優先權排在整個人員池最上方。
     const rolePriority={'中隊長':0,'分隊長':1,'小隊長':2,'隊員':3,'役男':3,'義消':4};
     candidates.sort((a,b)=>{
       const ar=rolePriority[normalizeRole(a.role)] ?? 99;
@@ -1605,8 +1882,6 @@ $(function(){
       const $meta=$('<small class="pool-meta"></small>');
       $meta.append($('<span></span>').text(`${noText ? noText+'號 · ' : ''}${roleLabel(item.role)}`));
 
-      // 「請替」等附加狀態不取代勤務項目；人員池只顯示目前勤務位置。
-      // 例如：22號 · 隊員 [在隊備勤]
       if(isAtStationNow){
         $meta.append($('<span class="duty-badge duty-badge-ready"></span>').text('在隊備勤'));
       }else if(isOnDutyNow){
@@ -1820,91 +2095,76 @@ $(function(){
   function addOtherPerson(){openPersonEditor('new',-1);}
 
   /* =========================================================
-     14-3. 義消批次新增
-     ---------------------------------------------------------
-     每行可直接貼一個姓名；也支援「番號,姓名」或從 Excel 貼上
-     「番號<TAB>姓名」。批次新增的人員職務一律為「義消」。
+     14-3. 批次新增人員
+     支援姓名、番號＋姓名、番號＋姓名＋職務。
   ========================================================= */
+  function refreshBatchDefaultRoleOptions(){
+    const roles=[...new Set((Array.isArray(roleMaster)?roleMaster:[]).map(x=>String(x||'').trim()).filter(Boolean))];
+    ['隊員','小隊長','役男','分隊長','中隊長','義消'].forEach(role=>{if(!roles.includes(role))roles.push(role);});
+    const $select=$('#volunteerBatchDefaultRole');
+    const previous=String($select.val()||'').trim();
+    $select.empty();
+    roles.forEach(role=>$select.append(new Option(role,role)));
+    $select.val(roles.includes(previous)?previous:(roles.includes('隊員')?'隊員':roles[0]));
+  }
+
   function openVolunteerBatch(){
     $('#volunteerBatchText').val('');
     $('#volunteerBatchResult').addClass('d-none').text('');
-
+    refreshBatchDefaultRoleOptions();
     if($('#masterDataModal').hasClass('show')){
       $('#masterDataModal').one('hidden.bs.modal',function(){
         volunteerBatchModal.show();
         setTimeout(()=>$('#volunteerBatchText').trigger('focus'),150);
       });
       masterDataModal.hide();
-    }else{
-      volunteerBatchModal.show();
-    }
+    }else volunteerBatchModal.show();
   }
 
   function parseVolunteerBatchLine(rawLine){
-    const line=String(rawLine || '').trim();
-    if(!line) return null;
-
-    let parts=line.split(/\t|,|，|;|；/).map(x=>x.trim()).filter(Boolean);
+    const line=String(rawLine||'').trim();
+    if(!line)return null;
+    const parts=line.split(/\t|,|，|;|；/).map(x=>x.trim()).filter(Boolean);
     if(parts.length>=2){
-      const first=parts[0];
-      const second=parts[1];
-      if(/^\d+$/.test(first)) return {no:first,name:second};
-      return {no:'',name:first};
+      if(/^\d+$/.test(parts[0]))return {no:parts[0],name:parts[1]||'',role:parts[2]||''};
+      return {no:'',name:parts[0],role:parts[1]||''};
     }
-
     const spaced=line.match(/^(\d+)\s+(.+)$/);
-    if(spaced) return {no:spaced[1],name:spaced[2].trim()};
-
-    return {no:'',name:line};
+    if(spaced)return {no:spaced[1],name:spaced[2].trim(),role:''};
+    return {no:'',name:line,role:''};
   }
 
   function saveVolunteerBatch(){
-    const lines=String($('#volunteerBatchText').val() || '').split(/\r?\n/);
-    let added=0, skipped=0;
-    const existingNames=new Set([
-      ...todayRoster.map(x=>String(x.name || '').trim()),
-      ...manualPersonnel.map(x=>String(x.name || '').trim())
-    ].filter(Boolean));
-    const existingNos=new Set([
-      ...todayRoster.map(x=>String(x.no ?? '').trim()),
-      ...manualPersonnel.map(x=>String(x.no ?? '').trim())
-    ].filter(Boolean));
+    const lines=String($('#volunteerBatchText').val()||'').split(/\r?\n/);
+    const defaultRole=String($('#volunteerBatchDefaultRole').val()||'隊員').trim()||'隊員';
+    let added=0,skipped=0;
+    const existingNames=new Set([...todayRoster.map(x=>String(x.name||'').trim()),...manualPersonnel.map(x=>String(x.name||'').trim())].filter(Boolean));
+    const existingNos=new Set([...todayRoster.map(x=>String(x.no??'').trim()),...manualPersonnel.map(x=>String(x.no??'').trim())].filter(Boolean));
 
     lines.forEach(line=>{
       const parsed=parseVolunteerBatchLine(line);
-      if(!parsed || !parsed.name) return;
-      const parsedNo=String(parsed.no ?? '').trim();
-      if(existingNames.has(parsed.name) || (parsedNo && existingNos.has(parsedNo))){skipped++;return;}
-
-      manualPersonnel.push({
-        id:`manual-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
-        no:parsed.no,
-        name:parsed.name,
-        role:'義消'
-      });
+      if(!parsed||!parsed.name)return;
+      const parsedNo=String(parsed.no??'').trim();
+      const parsedRole=String(parsed.role||defaultRole).trim()||defaultRole;
+      if(existingNames.has(parsed.name)||(parsedNo&&existingNos.has(parsedNo))){skipped++;return;}
+      manualPersonnel.push({id:`manual-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,no:parsedNo,name:parsed.name,role:parsedRole});
+      if(parsedRole&&!roleMaster.includes(parsedRole))roleMaster.push(parsedRole);
       existingNames.add(parsed.name);
-      if(parsedNo) existingNos.add(parsedNo);
+      if(parsedNo)existingNos.add(parsedNo);
       added++;
     });
 
-    if(!roleMaster.includes('義消')) roleMaster.push('義消');
-
     if(!added){
-      $('#volunteerBatchResult').removeClass('d-none').text(skipped ? `沒有新增人員；${skipped} 筆姓名已存在。` : '沒有可新增的姓名。');
+      $('#volunteerBatchResult').removeClass('d-none').text(skipped?`沒有新增人員；略過 ${skipped} 筆重複姓名／番號。`:'沒有可新增的人員。');
       return;
     }
-
-    syncAll();
-    refreshMasterDataUi();
-    queueAutoSave('batch-volunteers',50);
+    syncAll();refreshMasterDataUi();queueAutoSave('batch-personnel',50);
     volunteerBatchModal.hide();
-    toast(`已批次新增 ${added} 位義消${skipped ? `，略過 ${skipped} 筆重複姓名／番號` : ''}`);
-
+    toast(`已批次新增 ${added} 位人員${skipped?`，略過 ${skipped} 筆重複姓名／番號`:''}`);
     setTimeout(()=>{
-      refreshMasterDataUi();
-      masterDataModal.show();
+      refreshMasterDataUi();masterDataModal.show();
       const trigger=document.querySelector('[data-bs-target="#personManagePane"]');
-      if(trigger) bootstrap.Tab.getOrCreateInstance(trigger).show();
+      if(trigger)bootstrap.Tab.getOrCreateInstance(trigger).show();
     },180);
   }
 
@@ -2283,7 +2543,7 @@ $(function(){
     }
 
     personPoolSortable = new Sortable($('#personPool')[0],{
-      group:{name:'people',pull:'clone',put:false},
+      group:{name:'people',pull:true,put:false},
       sort:false,
       filter:'.pool-item.is-unavailable',
       preventOnFilter:true,
@@ -2292,7 +2552,12 @@ $(function(){
       delayOnTouchOnly:true,
       touchStartThreshold:4,
       fallbackOnBody:true,
-      fallbackTolerance:5
+      fallbackTolerance:5,
+      onRemove:function(){
+        // v66：人員池採真正移動，不再 clone。放入正式位置後立即重算池內容，
+        // 確保同一人不會同時留在池裡又出現在看板。
+        setTimeout(rebuildPersonPool,0);
+      }
     });
   }
 
@@ -2329,11 +2594,10 @@ $(function(){
       // 不只依賴 Sortable group，再檢查一次實際 item / target 型別。
       // 例如 11車(type=vehicle) 只能進入 data-kind=vehicle 的車輛欄。
       onMove:function(evt){
-        // 返回區不是正式配置格，因此沒有 data-kind。
-        // 若拖曳目標是返回區，直接允許人員 / 車輛離開目前配置格；
-        // 其他目標才依 data-kind 嚴格限制型別。
-        if(evt.to && evt.to.id === 'returnZone') return true;
-        return isItemAllowedInDropTarget(evt.dragged,evt.to);
+        // v78：統一使用 isAllowedDragDestination()。
+        // 特別修正「從休息／因公外出拉到主看板後，無法再拉回去」：
+        // restingBody / officialBody 沒有 data-kind，舊版因此被當成非法目的地。
+        return isAllowedDragDestination(evt.dragged,evt.to);
       },
 
       onStart:function(evt){
@@ -2358,16 +2622,29 @@ $(function(){
         $target.find(`[data-drag-type="${kind}"]`).not(evt.item).remove();
 
         let $replacement;
+        // v74：這兩個值必須宣告在 onAdd 共用 scope。
+        // v73 把它們宣告在 else block，下面的 setTimeout 會 ReferenceError，
+        // 造成「人員拖曳看得到，但 queueAutoSave 根本沒執行」。
+        let dutyRole = '';
+        let personSource = '';
+
         if(kind === 'vehicle'){
           $replacement = $('<div class="vehicle-chip"></div>')
             .attr('data-drag-type','vehicle')
             .attr('data-value',value)
             .text(value);
+
+          // v79：重新把車輛拉回火警車輛格，代表恢復使用該車。
+          // 解除停用旗標，後續自動編組即可再次安排這台車的駕駛。
+          const targetSlotId=String($target.attr('data-slot-id') || '').trim();
+          if(driverSlotForVehicleSlot(targetSlotId)){
+            suppressedFireVehicleSlots.delete(targetSlotId);
+          }
         }else{
           const role = $item.attr('data-role') || findRosterRole(value);
           const no = $item.attr('data-no') ?? '';
-          const dutyRole = String($item.attr('data-duty-role') || '').trim();
-          const personSource = String($item.attr('data-person-source') || (dutyRole ? 'duty' : 'daily')).trim();
+          dutyRole = String($item.attr('data-duty-role') || '').trim();
+          personSource = String($item.attr('data-person-source') || (dutyRole ? 'duty' : 'daily')).trim();
           if(personSource === 'daily') ensureRosterPerson(value,role,no);
 
           $replacement = $('<div class="person-chip"></div>')
@@ -2393,6 +2670,16 @@ $(function(){
         setTimeout(function(){
           // 放入「火警值班」後立即把目前值班番號對應人員帶到右邊那一格。
           if(personSource === 'duty' && dutyRole === '火警值班') applyFireDutyWatch(getActiveDutyPeriod(),{onlyEmpty:true});
+
+          // v79：若剛把車輛重新放回火警車輛格，立即檢查其駕駛格。
+          // applyAtStationFireRandom() 只補空格，不會改掉人工配置。
+          if(kind === 'vehicle'){
+            const targetSlotId=String($target.attr('data-slot-id') || '').trim();
+            if(driverSlotForVehicleSlot(targetSlotId)){
+              applyAtStationFireRandom(getActiveDutyPeriod());
+            }
+          }
+
           syncAll();
           queueAutoSave('drag');
         },0);
@@ -2432,9 +2719,10 @@ $(function(){
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
 
-      // 休息 / 因公外出只接受人員，車輛一律拒絕。
+      // v78：狀態區與主看板使用完全相同的目的地驗證，
+      // 可雙向拖曳：主看板 ↔ 休息 ↔ 因公外出 ↔ 返回區。
       onMove:function(evt){
-        return dragItemType(evt.dragged) === 'person' && String($(evt.dragged).attr('data-person-source') || '') !== 'duty';
+        return isAllowedDragDestination(evt.dragged,evt.to);
       },
 
       onStart:function(){
@@ -2497,6 +2785,8 @@ $(function(){
     onAdd:function(evt){
       const $item = $(evt.item);
       const kind = $item.attr('data-drag-type');
+      // Sortable 的 evt.from 是卡片原本所在位置；車輛回池時用它判斷是哪一台火警車被停用。
+      const sourceSlotId=String($(evt.from).attr('data-slot-id') || '').trim();
 
       if(kind === 'person'){
         const name = String($item.data('value') || $item.text().trim());
@@ -2507,6 +2797,15 @@ $(function(){
         if(source !== 'manual' && source !== 'duty'){
           ensureRosterPerson(name,role,no);
         }
+      }
+
+      // v79：從火警主表的車輛格拉回車輛池 = 人工停用該車。
+      // 1. 記住停用格，避免基礎配置／跨時段又把車補回。
+      // 2. 立即清掉該車「系統自動安排」的駕駛。
+      // 3. 人工配置的駕駛不自動刪除，避免覆蓋值班台的明確決定。
+      if(kind === 'vehicle' && driverSlotForVehicleSlot(sourceSlotId)){
+        suppressedFireVehicleSlots.add(sourceSlotId);
+        clearAutoDriverForVehicleSlot(sourceSlotId);
       }
 
       $item.remove();
@@ -2667,16 +2966,44 @@ $(function(){
   ========================================================= */
 
   let pendingImport = null;
+  let pendingWorkbook = null;
 
   $('#importBtn').on('click',function(){
     $('#excelFile').trigger('click');
+  });
+
+  /* =========================================================
+     v63：快速配置 → 帶入人員
+     ---------------------------------------------------------
+     不需要重新匯入 Excel。使用目前已載入的勤務表資料，
+     依當前時段重新套用 91 / 92、休息、火警值班與在隊備勤
+     的火警隨機編組，並立即同步最新看板。
+  ========================================================= */
+  $('#bringInPersonnelBtn').on('click',function(){
+    if(!dutySchedule.length || !todayRoster.length){
+      toast('目前沒有可帶入的人員資料，請先匯入每日勤務表 Excel');
+      return;
+    }
+
+    const period=getActiveDutyPeriod();
+    if(!period){
+      toast('找不到目前時間對應的勤務時段');
+      return;
+    }
+
+    currentDutyKey='';
+    applyDutyPeriod(period);
+    queueAutoSave('bring-in-personnel',80);
+    toast(`已帶入 ${period.start || '--:--'}–${period.end || '--:--'} 人員`);
   });
 
   function cleanText(value){
     return String(value ?? '')
       .replace(/\r?\n/g,'')
       .replace(/\s+/g,'')
-      .replace(/[（）()【】\[\]、，,。．.]/g,'')
+      // 正式勤務表會混用 (91)、（91）、〈91〉、＜91＞ 等寫法；
+      // 表頭比對時全部視為相同，不可因此抓錯欄位。
+      .replace(/[（）()【】\[\]〈〉＜＞<>、，,。．.]/g,'')
       .trim();
   }
 
@@ -2758,6 +3085,35 @@ $(function(){
     return result;
   }
 
+  /*
+     v71：勤務欄位只能把「純番號清單」當成人員。
+     例如 35、"2\n3"、"22 23" 可以解析；
+     「第三人支援(備勤TP人員或92車第1人)」不可把 92 誤當番號。
+     狀態欄仍沿用 parseNumberList，因公假可能是 29(TEC) 這種格式。
+  */
+  function parseDutyNumberList(value){
+    const text=String(value ?? '').trim();
+    if(!text) return [];
+
+    // 勤務儲存格只允許數字及常見分隔符號。
+    // 一旦含中文、英文字母或其他說明文字，整格視為勤務說明而不是番號。
+    if(/[A-Za-z\u3400-\u9FFF]/.test(text)) return [];
+
+    const normalized=text
+      .replace(/[、，,。．.；;／/｜|＋+＆&]/g,' ')
+      .replace(/[\r\n\t]+/g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+
+    if(!normalized || !/^\d{1,3}(?:\s+\d{1,3})*$/.test(normalized)) return [];
+
+    return [...new Set(
+      normalized.split(/\s+/)
+        .map(Number)
+        .filter(no=>no>0 && no<=999)
+    )];
+  }
+
   function parseTimeRange(value){
     const text = String(value ?? '')
       .replace(/\s+/g,'')
@@ -2777,6 +3133,48 @@ $(function(){
     return {
       start:`${String(startHour % 24).padStart(2,'0')}:00`,
       end:`${String(endHour % 24).padStart(2,'0')}:00`
+    };
+  }
+
+  /*
+     v72：正式勤務表使用的很多不是 Excel「合併儲存格」，
+     而是「跨欄置中（Center Across Selection）」。
+
+     這種格式在 SheetJS 中：
+     - 標題只存在區塊第一格
+     - 後面的欄位是空白
+     - !merges 不一定有任何資料
+
+     因此勤務欄位範圍不能只看 !merges。
+     以同一個表頭列的「下一個非空白表頭」作為區塊終點：
+       D 備勤〈91〉 → 下一標題 F，所以範圍 D:E
+       V 備勤(救災) → 下一標題 X，所以範圍 V:W
+       X 在隊備勤 → 下一標題 AD，所以範圍 X:AC
+       AD 休息時間 → 下一標題 AH，所以範圍 AD:AG
+  */
+  function getLogicalHeaderSpan(sheet,matrix,header){
+    if(!header) return null;
+
+    const merged=getMergeSpan(sheet,header.row,header.col);
+    if(merged.endCol>merged.startCol){
+      return merged;
+    }
+
+    const row=matrix[header.row] || [];
+    let nextCol=row.length;
+
+    for(let c=header.col+1;c<row.length;c++){
+      if(cleanText(row[c])){
+        nextCol=c;
+        break;
+      }
+    }
+
+    return {
+      startRow:header.row,
+      endRow:header.row,
+      startCol:header.col,
+      endCol:Math.max(header.col,nextCol-1)
     };
   }
 
@@ -2807,6 +3205,32 @@ $(function(){
   function mergedCellValue(sheet,matrix,row,col){
     const span=getMergeSpan(sheet,row,col);
     return matrix?.[span.startRow]?.[span.startCol] ?? '';
+  }
+
+  /*
+     v70：正式勤務表大量使用「跨欄置中」。
+     不能假設番號右邊第 1 格就是姓名；若番號本身橫跨多欄，
+     下一個有效欄位應從該合併範圍的尾端再往右找。
+  */
+  function nextMergedCell(sheet,matrix,row,col,direction=1,maxSteps=10){
+    let cursor=col;
+    for(let step=0;step<maxSteps;step++){
+      const currentSpan=getMergeSpan(sheet,row,cursor);
+      cursor=direction>0 ? currentSpan.endCol+1 : currentSpan.startCol-1;
+      if(cursor<0) return null;
+
+      const rowData=matrix[row] || [];
+      if(cursor>=rowData.length && direction>0) return null;
+
+      const span=getMergeSpan(sheet,row,cursor);
+      const value=matrix?.[span.startRow]?.[span.startCol] ?? '';
+      if(String(value ?? '').trim()){
+        return {row:span.startRow,col:span.startCol,value,span};
+      }
+
+      cursor=direction>0 ? span.endCol : span.startCol;
+    }
+    return null;
   }
 
   function sheetMatrix(sheet){
@@ -2867,7 +3291,7 @@ $(function(){
      同一番號若在勤務內容出現很多次，只會保留真正找到
      「姓名 + 身分」的完整人員資料，不會把勤務數字誤當名冊。
   ========================================================= */
-  function detectPersonnel(matrix){
+  function detectPersonnel(sheet,matrix){
     const byNo = new Map();
 
     for(let r=0;r<matrix.length;r++){
@@ -2877,41 +3301,43 @@ $(function(){
         const no = numberFromCell(row[c]);
         if(no === null || no <= 0) continue;
 
+        // 只處理合併區左上角，避免同一個跨欄番號被重複解析。
+        const noSpan=getMergeSpan(sheet,r,c);
+        if(noSpan.startRow!==r || noSpan.startCol!==c) continue;
+
         let role = '';
         let name = '';
 
-        // A. 最常見：番號右邊緊鄰就是「身分 姓名」。
-        // 只看右邊第一格，避免把左側勤務區的數字誤配到
-        // 同一列較遠的人員名冊，例如 P 欄的勤務數字誤配 S 欄姓名。
-        if(c+1 < row.length){
-          const parsed = parseRoleAndName(row[c+1]);
+        const right1=nextMergedCell(sheet,matrix,r,c,1,4);
+        const right2=right1 ? nextMergedCell(sheet,matrix,r,right1.col,1,4) : null;
+        const left1=nextMergedCell(sheet,matrix,r,c,-1,3);
+
+        // A. 番號 →「職務 姓名」，中間即使因跨欄置中有空白欄也可辨識。
+        if(right1){
+          const parsed=parseRoleAndName(right1.value);
           if(parsed.role && parsed.name){
-            role = parsed.role;
-            name = parsed.name;
+            role=parsed.role;
+            name=parsed.name;
           }
         }
 
-        // B. 身分在番號左邊、姓名在右邊，例如：役男 | 37 | 曾得安。
-        if(!name){
-          // 實際勤務表的「役男 | 番號 | 姓名」就是左右各一格。
-          // 限定相鄰可大幅降低勤務區數字被誤判成人員番號。
-          const candidateRole = c-1 >= 0 ? roleFromText(row[c-1]) : '';
-          const candidateName = c+1 < row.length ? nameFromCell(row[c+1]) : '';
-
+        // B. 「職務」← 番號 → 姓名，例如役男區。
+        if(!name && left1 && right1){
+          const candidateRole=roleFromText(left1.value);
+          const candidateName=nameFromCell(right1.value);
           if(candidateRole && candidateName){
-            role = candidateRole;
-            name = candidateName;
+            role=candidateRole;
+            name=candidateName;
           }
         }
 
-        // C. 番號右邊先是身分，再下一格才是姓名。
-        if(!name && c+2 < row.length){
-          // 兼容「番號 | 身分 | 姓名」三格格式，同樣只接受相鄰欄位。
-          const candidateRole = roleFromText(row[c+1]);
-          const candidateName = nameFromCell(row[c+2]);
+        // C. 番號 → 職務 → 姓名。
+        if(!name && right1 && right2){
+          const candidateRole=roleFromText(right1.value);
+          const candidateName=nameFromCell(right2.value);
           if(candidateRole && candidateName){
-            role = candidateRole;
-            name = candidateName;
+            role=candidateRole;
+            name=candidateName;
           }
         }
 
@@ -3034,18 +3460,21 @@ $(function(){
     const key91 = settings.duty91Keywords || ['備勤91','備勤(91)','備勤（91）'];
     const key92 = settings.duty92Keywords || ['備勤救災','備勤(救災)','備勤（救災）'];
     const keyWatch = settings.dutyWatchKeywords || ['值班'];
+    const keyWatchInstructor = settings.dutyWatchInstructorKeywords || ['值班指導員'];
     const keyAtStation = settings.atStationKeywords || ['在隊備勤'];
     const keyRest = settings.restKeywords || ['休息時間'];
     const keyDutyEnd = settings.dutyRegionEndKeywords || ['服勤編組'];
 
-    const header91 = findKeywordCell(matrix,key91);
-    const header92 = findKeywordCell(matrix,key92);
+    // 正式勤務表的這些欄名都是固定標題，使用正規化後的「完全相等」比對。
+    // 不再用 keyword.includes(text) 的模糊規則，避免抓到相似但不同的勤務欄。
+    const header91 = findExactKeywordCell(matrix,key91);
+    const header92 = findExactKeywordCell(matrix,key92);
     // 「值班」與「值班指導員」是兩個不同欄位。
-    // 火警值班只能讀取欄名完全等於「值班」的那一欄，不能用模糊比對抓到「值班指導員」。
     const headerWatch = findExactKeywordCell(matrix,keyWatch);
-    const headerAtStation = findKeywordCell(matrix,keyAtStation);
-    const headerRest = findKeywordCell(matrix,keyRest);
-    const headerDutyEnd = findKeywordCell(matrix,keyDutyEnd);
+    const headerWatchInstructor = findExactKeywordCell(matrix,keyWatchInstructor);
+    const headerAtStation = findExactKeywordCell(matrix,keyAtStation);
+    const headerRest = findExactKeywordCell(matrix,keyRest);
+    const headerDutyEnd = findExactKeywordCell(matrix,keyDutyEnd);
     const timeCol = detectTimeColumn(matrix);
 
     if(!header91 || !header92 || !headerAtStation || !headerRest || timeCol === null){
@@ -3054,6 +3483,7 @@ $(function(){
         header91,
         header92,
         headerWatch,
+        headerWatchInstructor,
         headerAtStation,
         headerRest,
         timeCol,
@@ -3061,11 +3491,13 @@ $(function(){
       };
     }
 
-    const span91 = getMergeSpan(sheet,header91.row,header91.col);
-    const span92 = getMergeSpan(sheet,header92.row,header92.col);
-    const spanWatch = headerWatch ? getMergeSpan(sheet,headerWatch.row,headerWatch.col) : null;
-    const spanAtStation = getMergeSpan(sheet,headerAtStation.row,headerAtStation.col);
-    const spanRest = getMergeSpan(sheet,headerRest.row,headerRest.col);
+    // 這裡必須支援「跨欄置中」，不能只依賴 Excel !merges。
+    const span91 = getLogicalHeaderSpan(sheet,matrix,header91);
+    const span92 = getLogicalHeaderSpan(sheet,matrix,header92);
+    const spanWatch = headerWatch ? getLogicalHeaderSpan(sheet,matrix,headerWatch) : null;
+    const spanWatchInstructor = headerWatchInstructor ? getLogicalHeaderSpan(sheet,matrix,headerWatchInstructor) : null;
+    const spanAtStation = getLogicalHeaderSpan(sheet,matrix,headerAtStation);
+    const spanRest = getLogicalHeaderSpan(sheet,matrix,headerRest);
 
     // 勤務區從時間欄右側開始，到「服勤編組」前一欄為止。
     // 「服勤編組」本身是人數（例如 10、11），不是人員番號；不可納入 allDutyNumbers。
@@ -3075,11 +3507,12 @@ $(function(){
       span91.endCol,
       span92.endCol,
       ...(spanWatch ? [spanWatch.endCol] : []),
+      ...(spanWatchInstructor ? [spanWatchInstructor.endCol] : []),
       spanAtStation.endCol,
       spanRest.endCol
     );
     const dutyEndCol = headerDutyEnd
-      ? Math.max(dutyStartCol,getMergeSpan(sheet,headerDutyEnd.row,headerDutyEnd.col).startCol - 1)
+      ? Math.max(dutyStartCol,getLogicalHeaderSpan(sheet,matrix,headerDutyEnd).startCol - 1)
       : fallbackDutyEnd;
 
     const currentByCol = new Map();
@@ -3092,16 +3525,45 @@ $(function(){
     let restCarryNumbers = [];
     let restCarryRemaining = 0;
 
+    let dutyStarted=false;
+
     for(let r=0;r<matrix.length;r++){
       const row = matrix[r] || [];
       const period = parseTimeRange(row[timeCol]);
       if(!period) continue;
 
+      /*
+         正式勤務表在真正勤務明細前，還有一列「8-9 勤前教育」。
+         它只有時間文字，勤務區沒有任何純番號，不能算成第一個勤務時段。
+         第一個在勤務區實際出現番號的時間列才是 08:00–09:00 的真正起點；
+         起點之後的空白 9-10、11-12... 才依既有規則承接上一時段。
+      */
+      if(!dutyStarted){
+        let hasActualDutyNumber=false;
+        for(let c=dutyStartCol;c<=dutyEndCol;c++){
+          if(parseDutyNumberList(row[c] ?? '').length){
+            hasActualDutyNumber=true;
+            break;
+          }
+        }
+        if(!hasActualDutyNumber) continue;
+        dutyStarted=true;
+      }
+
       const parsedByCol = new Map();
       let rowHasDutyNumbers = false;
 
       for(let c=dutyStartCol;c<=dutyEndCol;c++){
-        const nums = parseNumberList(mergedCellValue(sheet,matrix,r,c));
+        /*
+           v62：判斷「本時段有沒有新勤務資料」只能看這一列真正填寫的值。
+           不可用 mergedCellValue()，因為 Excel 的縱向合併儲存格會把上一列的值
+           延伸到下一列，讓原本應該整列承接的 09-10、11-12 等空白列被誤判成
+           「本列有新資料」，接著把 91／92／值班／在隊備勤的空欄全部清掉。
+
+           真正整列空白時，currentByCol 會完整沿用上一時段；
+           本列只要真的填了任一勤務番號，才視為新的勤務狀態。
+        */
+        const nums = parseDutyNumberList(row[c] ?? '');
         parsedByCol.set(c,nums);
         if(nums.length) rowHasDutyNumbers = true;
       }
@@ -3117,22 +3579,61 @@ $(function(){
         }
       }
 
-      // 休息欄位獨立處理，不讓其他勤務欄位的更新誤把第二個休息時段清掉。
+      /*
+         v73：休息時間大量使用 Excel 合併儲存格。
+         這裡分成兩種來源：
+
+         A. 真正的 Excel merge
+            若目前這一列落在某個休息合併範圍內，就直接讀該 merge 左上角的番號。
+            merge 跨 2 列就休 2 小時，跨 3 列就休 3 小時，不再自行猜固定 2 小時。
+            橫向合併也同樣以 merge 左上角值為準。
+
+         B. 沒有 merge 的一般儲存格
+            才保留舊版「最多延續下一個 1 小時」的相容規則。
+
+         這樣可同時支援正式勤務表的合併休息格，以及舊勤務表只填第一小時的格式。
+      */
       const explicitRest=[];
+      const mergedRest=[];
+      const visitedRestAnchors=new Set();
+
       for(let c=spanRest.startCol;c<=spanRest.endCol;c++){
-        // 只看這一列實際填寫的儲存格，不把 mergedCellValue 的延伸值再當成新的起點，
-        // 否則兩列合併的休息會被錯誤延長成第三個時段。
-        explicitRest.push(...parseNumberList(row[c] ?? ''));
+        const merge=getMergeSpan(sheet,r,c);
+        const anchorKey=`${merge.startRow}:${merge.startCol}`;
+
+        // 目前儲存格確實屬於一個多格 merge，且該 merge 與休息欄位相交。
+        const isRealMerge=
+          merge.endRow>merge.startRow || merge.endCol>merge.startCol;
+
+        if(isRealMerge && !visitedRestAnchors.has(anchorKey)){
+          visitedRestAnchors.add(anchorKey);
+          const anchorValue=matrix?.[merge.startRow]?.[merge.startCol] ?? '';
+          mergedRest.push(...parseDutyNumberList(anchorValue));
+        }
+
+        // 只有 merge 左上角或一般未合併格才算「本列明確填寫」，
+        // 避免 merge 延伸列被重複當成新的休息起點。
+        if(!isRealMerge || (merge.startRow===r && merge.startCol===c)){
+          explicitRest.push(...parseDutyNumberList(row[c] ?? ''));
+        }
       }
+
+      const uniqueMergedRest=[...new Set(mergedRest.map(no=>String(no)))];
       const uniqueExplicitRest=[...new Set(explicitRest.map(no=>String(no)))];
 
       let effectiveRest=[];
-      if(uniqueExplicitRest.length){
+
+      if(uniqueMergedRest.length){
+        // 真正 merge 的長度就是休息長度；完全依 Excel，不再額外 carry。
+        effectiveRest=[...uniqueMergedRest];
+        restCarryNumbers=[];
+        restCarryRemaining=0;
+      }else if(uniqueExplicitRest.length){
+        // 非 merge 的舊格式才向後相容最多 1 個時段。
         effectiveRest=[...uniqueExplicitRest];
         restCarryNumbers=[...uniqueExplicitRest];
         restCarryRemaining=1;
       }else if(restCarryRemaining>0 && restCarryNumbers.length){
-        // 下一時段若已明確排到其他勤務，該番號就不再延續休息。
         const explicitOtherDuty=new Set();
         for(let c=dutyStartCol;c<=dutyEndCol;c++){
           if(c>=spanRest.startCol && c<=spanRest.endCol) continue;
@@ -3154,8 +3655,15 @@ $(function(){
       const nums91 = numbersFromColumnState(currentByCol,span91.startCol,span91.endCol);
       const nums92 = numbersFromColumnState(currentByCol,span92.startCol,span92.endCol);
       const numsWatch = spanWatch ? numbersFromColumnState(currentByCol,spanWatch.startCol,spanWatch.endCol) : [];
+      const numsWatchInstructor = spanWatchInstructor
+        ? numbersFromColumnState(currentByCol,spanWatchInstructor.startCol,spanWatchInstructor.endCol)
+        : [];
       const numsAtStation = numbersFromColumnState(currentByCol,spanAtStation.startCol,spanAtStation.endCol);
       const numsRest = numbersFromColumnState(currentByCol,spanRest.startCol,spanRest.endCol);
+
+      // allDutyNumbers 只用來判斷「今天有上班的人」。
+      // 值班指導員可以存在於這個母集合，但「休息」只能來自 spanRest，
+      // 絕對不能因為值班指導員沒有看板位置就被塞進休息區。
       const allDutyNumbers = numbersFromColumnState(currentByCol,dutyStartCol,dutyEndCol);
 
       schedule.push({
@@ -3164,10 +3672,14 @@ $(function(){
         '備勤91':nums91,
         '備勤救災':nums92,
         '值班':numsWatch,
+        '值班指導員':numsWatchInstructor,
         '在隊備勤':numsAtStation,
         '休息時間':numsRest,
         allDutyNumbers
       });
+
+      // 一個勤務日固定為當日 08:00 至隔日 08:00，共 24 段。
+      if(schedule.length>=24) break;
     }
 
     return {
@@ -3175,6 +3687,7 @@ $(function(){
       header91,
       header92,
       headerWatch,
+      headerWatchInstructor,
       headerAtStation,
       headerRest,
       headerDutyEnd,
@@ -3349,7 +3862,12 @@ $(function(){
         <tbody>
     `;
 
-    result.schedule.slice(0,12).forEach(period=>{
+    /*
+       v68：勤務日為當日 08:00 至隔日 08:00，共 24 個一小時時段。
+       匯入預覽不可只顯示前 12 段，否則畫面會固定停在 19:00–20:00，
+       讓人誤以為 20:00 之後的 Excel 資料沒有被解析。
+    */
+    result.schedule.forEach(period=>{
       const names91 = (period['備勤91'] || []).map(no=>{
         const p = result.roster.find(x=>Number(x.no) === Number(no));
         return p ? `${no} ${p.name}` : `${no}`;
@@ -3399,73 +3917,121 @@ $(function(){
   }
 
   /* =========================================================
-     23. Excel 檔案讀取與自動偵測最佳工作表
-  ========================================================= */
-  $('#excelFile').on('change',async function(){
-    const file = this.files && this.files[0];
-    if(!file) return;
+     23. Excel 檔案讀取與「手動選擇工作表」
+     ---------------------------------------------------------
+     正式勤務表一個檔案可能同時包含 123 / 231 / 321 等工作表。
+     不再由系統猜最佳工作表；匯入時由使用者明確選擇。
 
-    pendingImport = null;
+     注意：
+     - 大量跨欄置中由 getMergeSpan / nextMergedCell 處理。
+     - A、B、C、D... 等勤務代號不做任何人員轉換；
+       parseNumberList 本來就只接受數字番號。
+  ========================================================= */
+  function parseSelectedImportSheet(){
+    pendingImport=null;
     $('#confirmImport').prop('disabled',true);
     $('#previewWrap').empty();
-    $('#importDetectStatus').text('正在解析勤務表…');
+
+    if(!pendingWorkbook){
+      $('#importDetectStatus').text('尚未選擇檔案');
+      return;
+    }
+
+    const sheetName=String($('#importSheetSelect').val() || '').trim();
+    if(!sheetName || !pendingWorkbook.Sheets[sheetName]){
+      $('#importDetectStatus').html('<span class="text-danger fw-bold">請先選擇要匯入的工作表。</span>');
+      return;
+    }
+
+    $('#importDetectStatus').html(`正在解析工作表 <b>${escapeHtml(sheetName)}</b>…`);
 
     try{
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer,{type:'array',cellDates:true});
+      const sheet=pendingWorkbook.Sheets[sheetName];
+      const matrix=sheetMatrix(sheet);
+      const roster=detectPersonnel(sheet,matrix);
+      const duty=detectDutySchedule(sheet,matrix);
+      const statuses=detectDailyStatuses(matrix);
+      const baseAssignments=detectFireBoardBase(matrix,roster);
 
-      let best = null;
+      if(!roster.length || !duty.schedule.length){
+        const details=[];
+        if(!roster.length) details.push('找不到人員名冊');
+        if(!duty.schedule.length) details.push(duty.error || '找不到勤務時段');
 
-      workbook.SheetNames.forEach(sheetName=>{
-        const sheet = workbook.Sheets[sheetName];
-        const matrix = sheetMatrix(sheet);
-        const roster = detectPersonnel(matrix);
-        const duty = detectDutySchedule(sheet,matrix);
-        const statuses = detectDailyStatuses(matrix);
-        const baseAssignments = detectFireBoardBase(matrix,roster);
-
-        const score = roster.length * 3 + duty.schedule.length * 5 + statuses.size;
-
-        if(!best || score > best.score){
-          best = {
-            score,
-            sheetName,
-            roster,
-            schedule:duty.schedule,
-            statuses,
-            baseAssignments,
-            error:duty.error
-          };
-        }
-      });
-
-      if(!best || !best.roster.length || !best.schedule.length){
         $('#importDetectStatus').html(
-          '<span class="text-danger fw-bold">無法從這份 Excel 辨識人員名冊或勤務時段。</span>'
+          `<span class="text-danger fw-bold">${escapeHtml(sheetName)} 無法匯入：${escapeHtml(details.join('；'))}</span>`
         );
         $('#previewWrap').html(
-          '<div class="p-3 small">目前解析器是依你提供的勤務表圖片版型設計；取得實際 Excel 後，如果儲存格結構不同，再調整一次欄位偵測即可。</div>'
+          '<div class="p-3 small">請確認選到的是當日正式勤務工作表。A、B、C 等勤務代號不會轉換成人員番號。</div>'
         );
-        importModal.show();
-        this.value = '';
         return;
       }
 
-      best.missing = collectMissingNumbers(best.roster,best.schedule);
-      pendingImport = best;
+      const result={
+        sheetName,
+        roster,
+        schedule:duty.schedule,
+        statuses,
+        baseAssignments,
+        error:duty.error
+      };
+      result.missing=collectMissingNumbers(result.roster,result.schedule);
+      pendingImport=result;
 
-      previewImport(best);
+      previewImport(result);
       $('#confirmImport').prop('disabled',false);
-      importModal.show();
-
     }catch(err){
       console.error(err);
+      $('#importDetectStatus').html(`<span class="text-danger fw-bold">${escapeHtml(sheetName)} 解析失敗</span>`);
+      $('#previewWrap').empty();
+    }
+  }
+
+  $('#importSheetSelect').on('change',parseSelectedImportSheet);
+
+  $('#excelFile').on('change',async function(){
+    const file=this.files && this.files[0];
+    if(!file) return;
+
+    pendingImport=null;
+    pendingWorkbook=null;
+    $('#confirmImport').prop('disabled',true);
+    $('#previewWrap').empty();
+    $('#sheetSelectWrap').addClass('d-none');
+    $('#importSheetSelect').empty();
+    $('#importDetectStatus').text('正在讀取 Excel…');
+
+    try{
+      const buffer=await file.arrayBuffer();
+      pendingWorkbook=XLSX.read(buffer,{type:'array',cellDates:true});
+
+      const names=(pendingWorkbook.SheetNames || []).filter(name=>String(name || '').trim());
+      if(!names.length){
+        $('#importDetectStatus').html('<span class="text-danger fw-bold">這份 Excel 沒有可選擇的工作表。</span>');
+        importModal.show();
+        this.value='';
+        return;
+      }
+
+      const $select=$('#importSheetSelect');
+      $select.empty();
+      $select.append(new Option('請選擇工作表',''));
+      names.forEach(name=>$select.append(new Option(name,name)));
+
+      $('#sheetSelectWrap').removeClass('d-none');
+      $('#importDetectStatus').html(
+        `已讀取 <b>${escapeHtml(file.name)}</b>，共 ${names.length} 張工作表。請選擇本次要匯入的工作表。`
+      );
+      importModal.show();
+    }catch(err){
+      console.error(err);
+      pendingWorkbook=null;
       $('#importDetectStatus').html('<span class="text-danger fw-bold">Excel 讀取失敗</span>');
       $('#previewWrap').empty();
       importModal.show();
     }
 
-    this.value = '';
+    this.value='';
   });
 
   /* =========================================================
@@ -3483,9 +4049,12 @@ $(function(){
     }));
 
     hasDetailedDutyData = true;
-    importedBaseAssignments = Array.isArray(pendingImport.baseAssignments) && pendingImport.baseAssignments.length
+    // v78：每日正式匯入後，只信任這份 Excel 解析出的火警基礎配置。
+    // 若 Excel 沒解析到，就保持空白，不可偷偷套用 board-data.json 的舊日期範例，
+    // 否則會把前一天或測試資料誤當成今天正式配置。
+    importedBaseAssignments = Array.isArray(pendingImport.baseAssignments)
       ? pendingImport.baseAssignments.map(item=>({...item}))
-      : (Array.isArray(appConfig?.baseAssignments) ? appConfig.baseAssignments.map(item=>({...item})) : []);
+      : [];
     dutyStatusByNo = new Map();
     if(pendingImport.statuses instanceof Map){
       pendingImport.statuses.forEach((statuses,no)=>{
@@ -3499,6 +4068,7 @@ $(function(){
       '備勤91':[...(item['備勤91'] || [])],
       '備勤救災':[...(item['備勤救災'] || [])],
       '值班':[...(item['值班'] || [])],
+      '值班指導員':[...(item['值班指導員'] || [])],
       '在隊備勤':[...(item['在隊備勤'] || [])],
       '休息時間':[...(item['休息時間'] || [])],
       allDutyNumbers:[...(item.allDutyNumbers || [])]
@@ -3506,6 +4076,8 @@ $(function(){
 
     dutyPeriodOverrideKey = '';
     currentDutyKey = '';
+    // v79：新勤務表代表新的當日基礎配置，前一次人工停用的車輛不延續到新匯入資料。
+    suppressedFireVehicleSlots = new Set();
     updateDutyPeriodEditorUi();
 
     // 確認匯入後，這份畫面就是目前最新版本；不需要再按儲存。
@@ -3527,6 +4099,9 @@ $(function(){
     queueAutoSave('import',50);
 
     pendingImport = null;
+    pendingWorkbook = null;
+    $('#importSheetSelect').empty();
+    $('#sheetSelectWrap').addClass('d-none');
   });
 
   /* =========================================================
